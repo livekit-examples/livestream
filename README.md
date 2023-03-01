@@ -6,7 +6,11 @@
 
 This is a demo app for livestreaming via RTMP using LiveKit. One user is a broadcaster who gets an RTMP URL for streaming (eg, via OBS). Other users can view their stream and chat.
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`. It leverages additional technologies:
+Today most livestreams experience a 5–30 second lag, which is evident in the delay it takes for streamers to respond to chats. Those streams use HLS, which leverages existing CDNs by uploading 5–30 second video chunks, which clients download one chunk at a time. HLS is hugely scalable, but it comes with latency.
+
+LiveKit is a sort of WebRTC CDN, achieving sub-100ms latency for audiences of 1000 or 100,000 by streaming video over backbone Internet connections and only going over the public Internet for the last mile (that is, delivery to connected clients). This enables true real-time, large-scale events, where anyone and everyone can participate.
+
+This sample app is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`. Besides LiveKit, it leverages additional technologies:
 
 - [Next.js](https://nextjs.org)
 - [Tailwind CSS](https://tailwindcss.com)
