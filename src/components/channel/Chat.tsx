@@ -48,7 +48,7 @@ export default function Chat({ viewerName }: Props) {
                 <div
                   className={cn(
                     "text-xs font-semibold",
-                    viewerName === message.from?.identity && "text-violet-500"
+                    viewerName === message.from?.identity && "text-blue-500"
                   )}
                 >
                   {message.from?.identity}
@@ -63,20 +63,23 @@ export default function Chat({ viewerName }: Props) {
           </div>
         ))}
       </div>
-      <div className="grid w-full gap-2">
+      <div className="flex w-full gap-2">
         <Textarea
           value={message}
-          className="bg-white dark:bg-slate-900"
+          className="border-box h-10 bg-white dark:bg-zinc-900"
           onChange={(e) => {
             setMessage(e.target.value);
           }}
           onKeyDown={onEnter}
           placeholder="Type a message..."
         />
-        <Button disabled={message.trim().length === 0} onClick={onSend}>
+        <Button
+          disabled={message.trim().length === 0}
+          onClick={onSend}
+          className="bg-blue-500 dark:bg-blue-500 dark:hover:bg-blue-600"
+        >
           <div className="flex items-center gap-2">
             <Icons.send className="h-4 w-4" />
-            Send
           </div>
         </Button>
       </div>

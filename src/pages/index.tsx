@@ -3,12 +3,12 @@ import { buttonVariants } from "@/components/ui/Button";
 
 export default function IndexPage() {
   return (
-    <section className="container mx-auto grid items-center gap-6 px-4 pt-6 pb-8 md:py-10">
-      <div className="flex max-w-[980px] flex-col items-start gap-2">
+    <section className="container mx-auto flex max-w-[680px] flex-1 flex-col items-start gap-20 px-4 pt-6 pb-8 md:py-10">
+      <div className="mx-auto flex w-full flex-col items-start gap-2">
         <h1 className="text-3xl font-extrabold leading-tight tracking-tighter sm:text-3xl md:text-5xl lg:text-6xl">
           Livestream with LiveKit
         </h1>
-        <p className="max-w-[700px] text-lg text-slate-700 dark:text-slate-400 sm:text-xl">
+        <p className="text-lg text-zinc-700 dark:text-zinc-400 sm:text-xl">
           This is a{" "}
           <Link
             href="https://create.t3.gg/"
@@ -20,7 +20,7 @@ export default function IndexPage() {
           </Link>{" "}
           project built with a collection of technologies including:
         </p>
-        <ul className="ml-6 list-disc text-lg text-slate-700 dark:text-slate-400 sm:text-xl">
+        <ul className="ml-6 list-disc text-lg text-zinc-700 dark:text-zinc-400 sm:text-xl">
           <li>
             <Link
               href="https://nextjs.org/"
@@ -64,7 +64,7 @@ export default function IndexPage() {
           </li>
         </ul>
       </div>
-      <div className="flex gap-4">
+      <div className="flex flex w-full flex-col gap-4 sm:flex-row">
         <Link
           href="https://docs.livekit.io"
           target="_blank"

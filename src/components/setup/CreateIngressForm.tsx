@@ -38,7 +38,7 @@ export default function CreateIngressForm() {
                 id="streamerName"
                 type="text"
                 placeholder="First Last"
-                className="my-0 mb-2 block h-9 w-full rounded-md border border-slate-300 py-2 px-3 text-sm placeholder:text-slate-400 hover:border-slate-400 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-800 focus:ring-offset-1"
+                className="my-0 mb-2 block h-9 w-full rounded-md border border-zinc-300 py-2 px-3 text-sm placeholder:text-zinc-400 hover:border-zinc-400 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-800 focus:ring-offset-1 dark:border-zinc-600 dark:bg-zinc-800"
                 value={formData.streamerName}
                 onChange={(evt) =>
                   setFormData({ ...formData, streamerName: evt.target.value })
@@ -56,14 +56,19 @@ export default function CreateIngressForm() {
                 id="roomSlug"
                 type="text"
                 placeholder="channel-name"
-                className="my-0 mb-2 block h-9 w-full rounded-md border border-slate-300 py-2 px-3 text-sm placeholder:text-slate-400 hover:border-slate-400 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-800 focus:ring-offset-1"
+                className="my-0 mb-2 block h-9 w-full rounded-md border border-zinc-300 py-2 px-3 text-sm placeholder:text-zinc-400 hover:border-zinc-400 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-800 focus:ring-offset-1 dark:border-zinc-600 dark:bg-zinc-800"
                 value={formData.roomSlug}
                 onChange={(evt) =>
                   setFormData({ ...formData, roomSlug: evt.target.value })
                 }
               />
             </div>
-            <Button disabled={createIngress.isLoading}>Create</Button>
+            <Button
+              disabled={createIngress.isLoading}
+              className="bg-blue-500 dark:bg-blue-500 dark:hover:bg-blue-600 dark:hover:text-black"
+            >
+              Create
+            </Button>
           </form>
         </div>
       )}
@@ -76,7 +81,7 @@ export default function CreateIngressForm() {
             <div className="pb-1 text-xs font-medium uppercase dark:text-black">
               Server URL:
             </div>
-            <div className="rounded bg-slate-100 p-1 font-mono text-xs dark:text-black">
+            <div className="rounded bg-zinc-100 p-1 font-mono text-xs dark:text-black">
               {createIngress.data?.url}
             </div>
           </div>
@@ -84,7 +89,7 @@ export default function CreateIngressForm() {
             <div className="pb-1 text-xs font-medium uppercase dark:text-black">
               Stream Key:
             </div>
-            <div className="rounded bg-slate-100 p-1 font-mono text-xs dark:text-black">
+            <div className="rounded bg-zinc-100 p-1 font-mono text-xs dark:text-black">
               {createIngress.data?.streamKey}
             </div>
           </div>
