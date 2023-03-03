@@ -102,16 +102,16 @@ export default function ChannelPage({
     >
       <WatchingAsBar viewerName={viewerName} />
       <div className="flex h-full flex-1">
-        <div className="sticky hidden w-64 bg-neutral-100 dark:bg-slate-800 lg:block">
+        <div className="sticky hidden w-80 border-r dark:border-zinc-800 dark:bg-zinc-900 lg:block">
           <div className="absolute left-0 top-0 bottom-0 flex h-full w-full flex-col gap-2 px-4 py-2">
             <Sidebar />
           </div>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 flex-col dark:border-t-zinc-200 dark:bg-black">
           <StreamPlayer />
           <ChannelInfo username={slug} />
         </div>
-        <div className="sticky hidden w-80 bg-neutral-100 dark:bg-slate-800 md:block">
+        <div className="sticky hidden w-80 border-l dark:border-zinc-800 dark:bg-zinc-900 md:block">
           <div className="absolute top-0 bottom-0 right-0 flex h-full w-full flex-col gap-2 p-2">
             <Chat viewerName={viewerName} />
           </div>
