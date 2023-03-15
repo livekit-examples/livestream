@@ -19,6 +19,7 @@ const server = z.object({
  */
 const client = z.object({
   NEXT_PUBLIC_LIVEKIT_WS_URL: z.string().min(1),
+  NEXT_PUBLIC_ENABLE_DANGER_ZONE: z.string().optional(),
 });
 
 /**
@@ -32,6 +33,7 @@ const processEnv = {
   LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET,
   LIVEKIT_API_URL: process.env.LIVEKIT_API_URL,
   NEXT_PUBLIC_LIVEKIT_WS_URL: process.env.NEXT_PUBLIC_LIVEKIT_WS_URL,
+  NEXT_PUBLIC_ENABLE_DANGER_ZONE: process.env.NEXT_PUBLIC_ENABLE_DANGER_ZONE,
 };
 
 // Don't touch the part below

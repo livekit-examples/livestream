@@ -21,7 +21,7 @@ const config = {
     defaultLocale: "en",
   },
   images: {
-    domains: ["api.dicebear.com"],
+    domains: ["api.dicebear.com", "user-images.githubusercontent.com"],
   },
 };
 export default config;
