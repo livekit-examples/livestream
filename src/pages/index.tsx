@@ -10,16 +10,16 @@ export default function IndexPage() {
         </h1>
         <div className="flex flex-col gap-6 text-lg text-zinc-700 dark:text-zinc-400 sm:text-xl">
           <p>
-            This{" "}
+            This NextJS app (bootstrapped with{" "}
             <Link
               href="https://create.t3.gg/"
               target="_blank"
               rel="noreferrer"
               className="underline"
             >
-              T3 app
-            </Link>{" "}
-            is a great starting point for building your own livestreaming
+              create-t3-app
+            </Link>
+            ) is a great starting point for building your own livestreaming
             service. It includes a basic setup page to create an RTMP endpoint,
             as well as a basic watch page that allows you to view the broadcast
             as a guest and to chat with others in real-time. All A/V and
@@ -34,24 +34,26 @@ export default function IndexPage() {
             .
           </p>
           <p>
-            To get started as a broadcaster, navigate to the setup page and fill
-            out the simple form to create an RTMP endpoint and stream key. If
-            you use{" "}
+            To get started as a broadcaster, navigate to the{" "}
+            <Link href="/setup" className="underline">
+              setup page
+            </Link>{" "}
+            and fill out the simple form to create an RTMP endpoint and stream
+            key. If you use{" "}
             <Link
               href="https://obsproject.com/"
               target="_blank"
               rel="noreferrer"
               className="underline"
             >
-              Open Broadcaster Service
-            </Link>{" "}
-            (OBS) Studio, you can plug these values into the stream settings
-            window:
+              OBS Studio
+            </Link>
+            , you can plug these values into the stream settings window:
           </p>
           <Image
             width={1200}
             height={600}
-            alt="Screenshot 2023-03-14 at 11 31 16 AM"
+            alt="OBS Studio settings window"
             src="https://user-images.githubusercontent.com/304392/225103865-c0c3accb-600f-411d-814e-8f6384784b62.png"
           />
           <p>
