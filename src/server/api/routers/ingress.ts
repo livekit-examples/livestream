@@ -1,7 +1,11 @@
 import { createTRPCRouter, publicProcedure } from "../trpc";
 
-import { IngressInput } from "livekit-server-sdk";
-import { VideoQuality } from "livekit-server-sdk/dist/proto/livekit_models";
+import {
+  IngressAudioEncodingPreset,
+  IngressInput,
+  IngressVideoEncodingPreset,
+  TrackSource,
+} from "livekit-server-sdk";
 import { z } from "zod";
 
 export const ingressRouter = createTRPCRouter({
@@ -25,31 +29,13 @@ export const ingressRouter = createTRPCRouter({
           roomName: input.roomSlug,
           participantName: input.streamerName,
           participantIdentity: input.roomSlug,
-          videoParams: {
-            mimeType: "video/H264",
-            layers: [
-              {
-                quality: VideoQuality.HIGH,
-                width: 1920,
-                height: 1080,
-                bitrate: 6000000,
-                ssrc: 0,
-              },
-              {
-                quality: VideoQuality.MEDIUM,
-                width: 640,
-                height: 360,
-                bitrate: 800000,
-                ssrc: 0,
-              },
-              {
-                quality: VideoQuality.LOW,
-                width: 480,
-                height: 270,
-                bitrate: 400000,
-                ssrc: 0,
-              },
-            ],
+          video: {
+            source: TrackSource.SCREEN_SHARE,
+            preset: IngressVideoEncodingPreset.H264_1080P_30FPS_3_LAYERS,
+          },
+          audio: {
+            source: TrackSource.SCREEN_SHARE_AUDIO,
+            preset: IngressAudioEncodingPreset.OPUS_STEREO_96KBPS,
           },
         }
       );
