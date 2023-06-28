@@ -1,12 +1,11 @@
-import { createTRPCRouter, publicProcedure } from "../trpc";
-
 import {
   IngressAudioEncodingPreset,
   IngressInput,
   IngressVideoEncodingPreset,
-  TrackSource,
 } from "livekit-server-sdk";
+import { TrackSource } from "livekit-server-sdk/dist/proto/livekit_models";
 import { z } from "zod";
+import { createTRPCRouter, publicProcedure } from "../trpc";
 
 export const ingressRouter = createTRPCRouter({
   create: publicProcedure

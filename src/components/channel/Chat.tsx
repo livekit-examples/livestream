@@ -22,7 +22,7 @@ export default function Chat({ viewerName }: Props) {
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (message.trim().length > 0) {
+        if (message.trim().length > 0 && send) {
           send(message).catch((err) => console.error(err));
           setMessage("");
         }
@@ -32,7 +32,7 @@ export default function Chat({ viewerName }: Props) {
   );
 
   const onSend = useCallback(() => {
-    if (message.trim().length > 0) {
+    if (message.trim().length > 0 && send) {
       send(message).catch((err) => console.error(err));
       setMessage("");
     }
