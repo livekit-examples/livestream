@@ -1,9 +1,15 @@
-import { ParticipantLoop, ParticipantName } from "@livekit/components-react";
+import {
+  ParticipantLoop,
+  ParticipantName,
+  useParticipants,
+} from "@livekit/components-react";
 
 export default function ParticipantList() {
+  const participants = useParticipants();
+
   return (
     <ul>
-      <ParticipantLoop>
+      <ParticipantLoop participants={participants}>
         <li>
           <ParticipantName />
         </li>

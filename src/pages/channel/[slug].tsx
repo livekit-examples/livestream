@@ -108,8 +108,8 @@ export default function ChannelPage({
           </div>
         </div>
         <div className="flex-1 flex-col dark:border-t-zinc-200 dark:bg-black">
-          <StreamPlayer />
-          <ChannelInfo username={slug} />
+          <StreamPlayer streamerIdentity={slug} />
+          <ChannelInfo streamerIdentity={slug} />
         </div>
         <div className="sticky hidden w-80 border-l dark:border-zinc-800 dark:bg-zinc-900 md:block">
           <div className="absolute top-0 bottom-0 right-0 flex h-full w-full flex-col gap-2 p-2">

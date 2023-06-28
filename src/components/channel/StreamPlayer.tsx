@@ -2,7 +2,7 @@ import {
   StartAudio,
   useConnectionState,
   useMediaTrack,
-  useParticipants,
+  useRemoteParticipant,
 } from "@livekit/components-react";
 import { Track, type Participant } from "livekit-client";
 import React, { useCallback, useRef, useState } from "react";
@@ -31,29 +31,25 @@ function toString(connectionState: string) {
   }
 }
 
-export default function StreamPlayerWrapper() {
+type Props = {
+  streamerIdentity: string;
+};
+
+export default function StreamPlayerWrapper({ streamerIdentity }: Props) {
   const connectionState = useConnectionState();
+  const participant = useRemoteParticipant(streamerIdentity);
 
-  const filterFn = useCallback((p: Participant) => p.videoTracks.size > 0, []);
-  const participants = useParticipants({
-    filter: filterFn,
-  });
-
-  if (
-    connectionState !== "connected" ||
-    participants.length === 0 ||
-    !participants[0]
-  ) {
+  if (connectionState !== "connected" || !participant) {
     return (
       <div className="grid aspect-video items-center justify-center bg-black text-xs uppercase text-white">
-        {participants.length === 0 && connectionState === "connected"
+        {connectionState === "connected"
           ? "Stream is offline"
           : toString(connectionState)}
       </div>
     );
   }
 
-  return <StreamPlayer participant={participants[0]} />;
+  return <StreamPlayer participant={participant} />;
 }
 
 export const StreamPlayer = ({ participant }: { participant: Participant }) => {
@@ -63,13 +59,11 @@ export const StreamPlayer = ({ participant }: { participant: Participant }) => {
   const videoEl = useRef<HTMLVideoElement>(null);
   const playerEl = useRef<HTMLDivElement>(null);
 
-  useMediaTrack(Track.Source.Camera, {
-    participant,
+  useMediaTrack(Track.Source.ScreenShare, participant, {
     element: videoEl,
   });
 
-  useMediaTrack(Track.Source.Microphone, {
-    participant,
+  useMediaTrack(Track.Source.ScreenShareAudio, participant, {
     element: videoEl,
   });
 
