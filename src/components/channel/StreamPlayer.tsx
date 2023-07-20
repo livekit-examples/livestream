@@ -59,11 +59,11 @@ export const StreamPlayer = ({ participant }: { participant: Participant }) => {
   const videoEl = useRef<HTMLVideoElement>(null);
   const playerEl = useRef<HTMLDivElement>(null);
 
-  useMediaTrack(Track.Source.ScreenShare, participant, {
+  useMediaTrack(Track.Source.Camera, participant, {
     element: videoEl,
   });
 
-  useMediaTrack(Track.Source.ScreenShareAudio, participant, {
+  useMediaTrack(Track.Source.Microphone, participant, {
     element: videoEl,
   });
 
