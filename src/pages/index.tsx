@@ -34,18 +34,6 @@ export default function IndexPage() {
             .
           </p>
           <p>
-            Want to deploy this sample app yourself? Our friends at Vercel make
-            it super easy:
-            <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Flivekit-examples%2Flivestream&env=LIVEKIT_API_KEY,LIVEKIT_API_SECRET,LIVEKIT_API_URL,NEXT_PUBLIC_LIVEKIT_WS_URL&envDescription=Sign%20up%20for%20an%20account%20at%20https%3A%2F%2Fcloud.livekit.io%20and%20create%20an%20API%20key%20in%20the%20Project%20Settings%20UI">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                className="mt-4"
-                alt="deploy with vercel"
-                src="https://vercel.com/button"
-              />
-            </a>
-          </p>
-          <p>
             To get started as a broadcaster, navigate to the{" "}
             <Link href="/setup" className="underline">
               setup page
@@ -71,6 +59,18 @@ export default function IndexPage() {
           <p>
             When you&rsquo;re ready, press &ldquo;Start Streaming&rdquo; from
             the main window and watch the bits start to flow in your channel!
+          </p>
+          <p>
+            Want to deploy this sample app yourself? Our friends at Vercel make
+            it super easy:
+            <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Flivekit-examples%2Flivestream&env=LIVEKIT_API_KEY,LIVEKIT_API_SECRET,LIVEKIT_API_URL,NEXT_PUBLIC_LIVEKIT_WS_URL&envDescription=Sign%20up%20for%20an%20account%20at%20https%3A%2F%2Fcloud.livekit.io%20and%20create%20an%20API%20key%20in%20the%20Project%20Settings%20UI">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                className="mt-4"
+                alt="deploy with vercel"
+                src="https://vercel.com/button"
+              />
+            </a>
           </p>
         </div>
       </div>
