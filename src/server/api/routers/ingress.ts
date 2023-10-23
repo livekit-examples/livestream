@@ -16,13 +16,14 @@ export const ingressRouter = createTRPCRouter({
           .regex(/^([a-z][a-z0-9]*)(-[a-z0-9]+)*$/)
           .min(3),
         streamerName: z.string().min(3),
+        isWhip: z.boolean(),
       })
     )
     .mutation(async ({ input, ctx }) => {
       const { ingressClient } = ctx;
 
       const ingress = await ingressClient.createIngress(
-        IngressInput.RTMP_INPUT,
+        input.isWhip ? IngressInput.WHIP_INPUT : IngressInput.RTMP_INPUT,
         {
           name: input.roomSlug,
           roomName: input.roomSlug,
