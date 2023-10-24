@@ -1,4 +1,10 @@
-import { Button, Icons } from "@/components/ui";
+import {
+  Button,
+  Icons,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
+} from "@/components/ui";
 import { api, type RouterInputs } from "@/lib/api";
 import Link from "next/link";
 import { useCallback, useState, type FormEvent } from "react";
@@ -11,7 +17,11 @@ export default function CreateIngressForm() {
   const [formData, setFormData] = useState<CreateIngressInput>({
     streamerName: "",
     roomSlug: "",
+    isWhip: false,
   });
+
+  const [urlCopied, setUrlCopied] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
 
   const onSubmit = useCallback(
     (e: FormEvent<HTMLFormElement>) => {
@@ -20,6 +30,16 @@ export default function CreateIngressForm() {
     },
     [createIngress, formData]
   );
+
+  const onCopyUrl = () => {
+    setUrlCopied(true);
+    setTimeout(() => setUrlCopied(false), 1000);
+  };
+
+  const onCopyKey = () => {
+    setKeyCopied(true);
+    setTimeout(() => setKeyCopied(false), 1000);
+  };
 
   return (
     <>
@@ -30,7 +50,7 @@ export default function CreateIngressForm() {
             <div className="space-y-2">
               <label
                 htmlFor="streamerName"
-                className="text-sm font-medium uppercase"
+                className="text-sm font-medium uppercase text-blue-600 dark:text-blue-300"
               >
                 Streamer Name
               </label>
@@ -48,7 +68,7 @@ export default function CreateIngressForm() {
             <div className="space-y-2">
               <label
                 htmlFor="roomSlug"
-                className="text-sm font-medium uppercase"
+                className="text-sm font-medium uppercase text-blue-600 dark:text-blue-300"
               >
                 Room Slug
               </label>
@@ -63,9 +83,32 @@ export default function CreateIngressForm() {
                 }
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium uppercase text-blue-600 dark:text-blue-300">
+                Stream type
+              </label>
+              <RadioGroup defaultValue="rtmp">
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem
+                    value="rtmp"
+                    id="option-rtmp"
+                    onClick={() => setFormData({ ...formData, isWhip: false })}
+                  />
+                  <Label htmlFor="option-rtmp">RTMP</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem
+                    value="whip"
+                    id="option-whip"
+                    onClick={() => setFormData({ ...formData, isWhip: true })}
+                  />
+                  <Label htmlFor="option-whip">WHIP</Label>
+                </div>
+              </RadioGroup>
+            </div>
             <Button
               disabled={createIngress.isLoading}
-              className="bg-blue-500 dark:bg-blue-500 dark:hover:bg-blue-600 dark:hover:text-black"
+              className="bg-blue-600 dark:bg-blue-300 dark:hover:bg-blue-600 dark:hover:text-black"
             >
               Create
             </Button>
@@ -78,16 +121,42 @@ export default function CreateIngressForm() {
             Success! Use the following config:
           </h2>
           <div>
-            <div className="pb-1 text-xs font-medium uppercase dark:text-black">
-              Server URL:
+            <div className="flex justify-between">
+              <div className="pb-1 text-xs font-medium uppercase dark:text-black">
+                Server URL:
+              </div>
+              <div
+                className="cursor-pointer text-xs font-bold text-lime-700"
+                onClick={() => {
+                  onCopyUrl();
+                  void navigator.clipboard.writeText(
+                    createIngress.data?.url ?? ""
+                  );
+                }}
+              >
+                {urlCopied ? "Copied!" : "Copy"}
+              </div>
             </div>
             <div className="rounded bg-zinc-100 p-1 font-mono text-xs dark:text-black">
               {createIngress.data?.url}
             </div>
           </div>
           <div>
-            <div className="pb-1 text-xs font-medium uppercase dark:text-black">
-              Stream Key:
+            <div className="flex justify-between">
+              <div className="pb-1 text-xs font-medium uppercase dark:text-black">
+                Stream Key:
+              </div>
+              <div
+                className="cursor-pointer text-xs font-bold text-lime-700"
+                onClick={() => {
+                  onCopyKey();
+                  void navigator.clipboard.writeText(
+                    createIngress.data?.streamKey ?? ""
+                  );
+                }}
+              >
+                {keyCopied ? "Copied!" : "Copy"}
+              </div>
             </div>
             <div className="rounded bg-zinc-100 p-1 font-mono text-xs dark:text-black">
               {createIngress.data?.streamKey}
