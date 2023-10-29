@@ -1,3 +1,4 @@
+import type { CreateIngressOptions } from "livekit-server-sdk";
 import {
   IngressAudioEncodingPreset,
   IngressInput,
@@ -22,22 +23,30 @@ export const ingressRouter = createTRPCRouter({
     .mutation(async ({ input, ctx }) => {
       const { ingressClient } = ctx;
 
+      const options: CreateIngressOptions = {
+        name: input.roomSlug,
+        roomName: input.roomSlug,
+        participantName: input.streamerName,
+        participantIdentity: input.roomSlug,
+      };
+
+      if (input.isWhip) {
+        // https://docs.livekit.io/egress-ingress/ingress/overview/#bypass-transcoding-for-whip-sessions
+        options.bypassTranscoding = true;
+      } else {
+        options.video = {
+          source: TrackSource.CAMERA,
+          preset: IngressVideoEncodingPreset.H264_1080P_30FPS_3_LAYERS,
+        };
+        options.audio = {
+          source: TrackSource.MICROPHONE,
+          preset: IngressAudioEncodingPreset.OPUS_STEREO_96KBPS,
+        };
+      }
+
       const ingress = await ingressClient.createIngress(
         input.isWhip ? IngressInput.WHIP_INPUT : IngressInput.RTMP_INPUT,
-        {
-          name: input.roomSlug,
-          roomName: input.roomSlug,
-          participantName: input.streamerName,
-          participantIdentity: input.roomSlug,
-          video: {
-            source: TrackSource.CAMERA,
-            preset: IngressVideoEncodingPreset.H264_1080P_30FPS_3_LAYERS,
-          },
-          audio: {
-            source: TrackSource.MICROPHONE,
-            preset: IngressAudioEncodingPreset.OPUS_STEREO_96KBPS,
-          },
-        }
+        options
       );
 
       return ingress;

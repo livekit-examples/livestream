@@ -15,17 +15,21 @@ export default function ChannelInfo({ streamerIdentity }: Props) {
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <div className="grid place-items-center">
+            {participant && (
+              <div className="absolute z-10 h-11 w-11 animate-ping rounded-full bg-red-600 dark:bg-red-400" />
+            )}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               className={cn(
-                "h-16 w-16 rounded-full border-2 border-white bg-gray-500 dark:border-zinc-900",
+                "z-20 h-16 w-16 rounded-full border-2 border-white bg-gray-500 dark:border-zinc-900",
                 participant && "ring-2 ring-red-600"
               )}
               src={`https://api.dicebear.com/5.x/open-peeps/svg?seed=${streamerIdentity}&size=64&face=smile,cute`}
               alt={streamerIdentity}
             />
+
             {participant && (
-              <div className="absolute mt-14 w-12 rounded-xl border-2 border-white bg-red-600 p-1 text-center text-xs font-bold uppercase text-white transition-all dark:border-zinc-900">
+              <div className="absolute z-30 mt-14 w-12 rounded-xl border-2 border-white bg-red-600 p-1 text-center text-xs font-bold uppercase text-white transition-all dark:border-zinc-900">
                 Live
               </div>
             )}

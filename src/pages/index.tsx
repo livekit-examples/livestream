@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export default function IndexPage() {
   return (
-    <section className="items-startpx-4 container mx-auto flex max-w-[680px] flex-1 flex-col pt-6 pb-8 md:py-10">
+    <section className="items-start px-4 container mx-auto flex max-w-[680px] flex-1 flex-col pt-6 pb-8 md:py-10">
       <div className="mx-auto flex w-full flex-col items-start gap-6">
         <h1 className="text-3xl font-extrabold leading-tight tracking-tighter sm:text-3xl md:text-5xl lg:text-6xl">
           Hello, broadcaster!
