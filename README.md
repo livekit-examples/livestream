@@ -2,7 +2,7 @@
 
 <img width="1498" alt="Screenshot 2023-02-14 at 8 13 19 AM" src="https://user-images.githubusercontent.com/304392/218794329-94641d24-461b-4c3d-b33e-0d2b3ef8fcc1.png" />
 
-This is a demo app for livestreaming via RTMP or WHIP using LiveKit. One user is a broadcaster who gets an RTMP/WHIP for streaming (eg, via OBS). Other users can view their stream and chat.
+This is a demo app for livestreaming via RTMP or WHIP using LiveKit. One user is a broadcaster who gets an RTMP/WHIP for streaming (eg, via OBS). Other users can view their stream and chat. We also let you broadcast directly from your device from the "Host" page.
 
 Today most livestreams experience a 5–30 second lag, which is evident in the delay it takes for streamers to respond to chats. Those streams use HLS, which leverages existing CDNs by uploading 5–30 second video chunks, which clients download one chunk at a time. HLS is hugely scalable, but it comes with latency.
 

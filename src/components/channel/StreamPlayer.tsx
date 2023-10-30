@@ -1,8 +1,8 @@
 import {
   StartAudio,
   useConnectionState,
-  useMediaTrack,
   useRemoteParticipant,
+  useTracks,
 } from "@livekit/components-react";
 import { Track, type Participant } from "livekit-client";
 import React, { useCallback, useRef, useState } from "react";
@@ -59,13 +59,13 @@ export const StreamPlayer = ({ participant }: { participant: Participant }) => {
   const videoEl = useRef<HTMLVideoElement>(null);
   const playerEl = useRef<HTMLDivElement>(null);
 
-  useMediaTrack(Track.Source.Camera, participant, {
-    element: videoEl,
-  });
-
-  useMediaTrack(Track.Source.Microphone, participant, {
-    element: videoEl,
-  });
+  useTracks([Track.Source.Camera, Track.Source.Microphone])
+    .filter((track) => track.participant.identity === participant.identity)
+    .forEach((track) => {
+      if (videoEl.current) {
+        track.publication.track?.attach(videoEl.current);
+      }
+    });
 
   const onVolumeChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

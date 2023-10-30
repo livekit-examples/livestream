@@ -38,7 +38,7 @@ export default function ChannelPage({
   const [viewerToken, setViewerToken] = useState("");
   const [queryEnabled, setQueryEnabled] = useState(false);
 
-  api.token.get.useQuery(
+  api.token.getRead.useQuery(
     {
       roomName: slug,
       identity: generatedName,
