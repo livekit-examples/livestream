@@ -1,6 +1,6 @@
 # LiveKit Livestreaming Demo
 
-<img width="1498" alt="Screenshot 2023-02-14 at 8 13 19 AM" src="https://user-images.githubusercontent.com/304392/218794329-94641d24-461b-4c3d-b33e-0d2b3ef8fcc1.png" />
+<img width="1095" alt="Screenshot 2023-11-03 at 10 13 37 AM" src="https://github.com/livekit/cloud-site/assets/304392/00f28e36-54bd-4b48-84fe-5fc6eb92a309">
 
 This is a demo app for livestreaming via RTMP or WHIP using LiveKit. One user is a broadcaster who gets an RTMP/WHIP for streaming (eg, via OBS). Other users can view their stream and chat. We also let you broadcast directly from your device from the "Host" page.
 
@@ -8,11 +8,10 @@ Today most livestreams experience a 5–30 second lag, which is evident in the d
 
 LiveKit is a sort of WebRTC CDN, achieving sub-100ms latency for audiences of 1000 or 100,000 by streaming video over backbone Internet connections and only going over the public Internet for the last mile (that is, delivery to connected clients). This enables true real-time, large-scale events, where anyone and everyone can participate.
 
-This sample app is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`. Besides LiveKit, it leverages additional technologies:
+This sample app only leverages the following technologies:
 
-- [Next.js](https://nextjs.org)
+- [Next.js 14](https://nextjs.org)
 - [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
 - [shadcn/ui](https://github.com/shadcn/ui)
 
 ## Running locally
@@ -40,6 +39,12 @@ Then run the development server:
 
 ```bash
 npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
 You can test it by opening <http://localhost:3000> in a browser.
