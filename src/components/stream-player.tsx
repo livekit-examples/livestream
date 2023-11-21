@@ -37,10 +37,9 @@ interface Props {
 export default function StreamPlayerWrapper({ streamerIdentity }: Props) {
   const connectionState = useConnectionState();
   const participant = useRemoteParticipant(streamerIdentity);
-  const tracks = useTracks([
-    Track.Source.Camera,
-    Track.Source.Microphone,
-  ]).filter((track) => track.participant.identity === streamerIdentity);
+  const tracks = useTracks(Object.values(Track.Source)).filter(
+    (track) => track.participant.identity === streamerIdentity
+  );
 
   if (connectionState !== ConnectionState.Connected || !participant) {
     return (
@@ -74,8 +73,7 @@ export const StreamPlayer = ({ participant }: { participant: Participant }) => {
   const videoEl = useRef<HTMLVideoElement>(null);
   const playerEl = useRef<HTMLDivElement>(null);
 
-  // useTracks([Track.Source.Camera, Track.Source.Microphone])
-  useTracks([Track.Source.Camera])
+  useTracks(Object.values(Track.Source))
     .filter((track) => track.participant.identity === participant.identity)
     .forEach((track) => {
       if (videoEl.current) {
