@@ -1,57 +1,57 @@
-# LiveKit Livestreaming Demo
+# Demonstração de transmissão ao vivo do LiveKit
 
-<img width="1095" alt="Screenshot 2023-11-03 at 10 13 37 AM" src="https://github.com/livekit/cloud-site/assets/304392/00f28e36-54bd-4b48-84fe-5fc6eb92a309">
+<img width="1095" alt="Captura de tela 03/11/2023 às 10h13 37h" src="https://github.com/livekit/cloud-site/assets/304392/00f28e36-54bd-4b48-84fe -5fc6eb92a309">
 
-This is a demo app for livestreaming via RTMP or WHIP using LiveKit. One user is a broadcaster who gets an RTMP/WHIP for streaming (eg, via OBS). Other users can view their stream and chat. We also let you broadcast directly from your device from the "Host" page.
+Este é um aplicativo de demonstração para transmissão ao vivo via RTMP ou WHIP usando LiveKit. Um usuário é um radiodifusor que recebe um RTMP/WHIP para streaming (por exemplo, via OBS). Outros usuários podem visualizar seu stream e bate-papo. Também permitimos que você transmita diretamente do seu dispositivo na página "Host".
 
-Today most livestreams experience a 5–30 second lag, which is evident in the delay it takes for streamers to respond to chats. Those streams use HLS, which leverages existing CDNs by uploading 5–30 second video chunks, which clients download one chunk at a time. HLS is hugely scalable, but it comes with latency.
+Hoje, a maioria das transmissões ao vivo apresenta um atraso de 5 a 30 segundos, o que é evidente no atraso que os streamers levam para responder aos bate-papos. Esses streams usam HLS, que aproveita os CDNs existentes, enviando pedaços de vídeo de 5 a 30 segundos, dos quais os clientes baixam um pedaço de cada vez. O HLS é extremamente escalável, mas vem com latência.
 
-LiveKit is a sort of WebRTC CDN, achieving sub-100ms latency for audiences of 1000 or 100,000 by streaming video over backbone Internet connections and only going over the public Internet for the last mile (that is, delivery to connected clients). This enables true real-time, large-scale events, where anyone and everyone can participate.
+LiveKit é uma espécie de CDN WebRTC, alcançando latência inferior a 100 ms para públicos de 1.000 ou 100.000 pessoas, transmitindo vídeo em conexões de backbone da Internet e passando pela Internet pública apenas na última milha (ou seja, entrega para clientes conectados). Isso permite eventos de grande escala em tempo real, onde qualquer pessoa pode participar.
 
-This sample app only leverages the following technologies:
+Este aplicativo de exemplo utiliza apenas as seguintes tecnologias:
 
 - [Next.js 14](https://nextjs.org)
 - [Tailwind CSS](https://tailwindcss.com)
 - [shadcn/ui](https://github.com/shadcn/ui)
 
-## Running locally
+## Executando localmente
 
-Clone the repo and install dependencies:
+Clone o repositório e instale as dependências:
 
 ```bash
 git clone git@github.com:livekit-examples/livestream.git
-cd livestream
-npm install
+transmissão ao vivo do CD
+instalação npm
 ```
 
-Create a new LiveKit project at <https://cloud.livekit.io>. Then create a new key in your [project settings](https://cloud.livekit.io/projects/p_/settings/keys).
+Crie um novo projeto LiveKit em <https://cloud.livekit.io>. Em seguida, crie uma nova chave nas [configurações do projeto](https://cloud.livekit.io/projects/p_/settings/keys).
 
-Create a new `.env.development` file and add your new API key and secret as well as your project's WebSocket URL (found at the top of <https://cloud.livekit.io>):
+Crie um novo arquivo `.env.development` e adicione sua nova chave de API e segredo, bem como a URL WebSocket do seu projeto (encontrada na parte superior de <https://cloud.livekit.io>):
 
 ```
-LIVEKIT_API_KEY=<your api key>
-LIVEKIT_API_SECRET=<your api secret>
-LIVEKIT_API_URL=https://<your-project>.livekit.cloud
-NEXT_PUBLIC_LIVEKIT_WS_URL=wss://<your-project>.livekit.cloud
+LIVEKIT_API_KEY=<sua chave de API>
+LIVEKIT_API_SECRET=<seu segredo da API>
+LIVEKIT_API_URL=https://<seu-projeto>.livekit.cloud
+NEXT_PUBLIC_LIVEKIT_WS_URL=wss://<seu-projeto>.livekit.cloud
 ```
 
-Then run the development server:
+Em seguida, execute o servidor de desenvolvimento:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm executar dev
+# ou
+desenvolvedor de fios
+# ou
+desenvolvedor pnpm
+# ou
+desenvolvedor de pão
 ```
 
-You can test it by opening <http://localhost:3000> in a browser.
+Você pode testá-lo abrindo <http://localhost:3000> em um navegador.
 
-## Deploying
+## Implantando
 
-This demo is a Next.js app. You can deploy to your Vercel account with one click:
+Esta demonstração é um aplicativo Next.js. Você pode implantar em sua conta Vercel com um clique:
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Flivekit-examples%2Flivestream&env=LIVEKIT_API_KEY,LIVEKIT_API_SECRET,LIVEKIT_API_URL,NEXT_PUBLIC_LIVEKIT_WS_URL&envDescription=Sign%20up%20for%20an%20account%20at%20https%3A%2F%2Fcloud.livekit.io%20and%20create%20an%20API%20key%20in%20the%20Project%20Settings%20UI)
 
