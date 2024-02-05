@@ -1,4 +1,5 @@
 import {
+  StartAudio,
   useConnectionState,
   useRemoteParticipant,
   useTracks,
@@ -159,10 +160,10 @@ export const StreamPlayer = ({ participant }: { participant: Participant }) => {
             </div>
           </div>
         </div>
-        {/* <StartAudio
+        <StartAudio
           label="Click to allow audio playback"
           className="absolute top-0 h-full w-full bg-black bg-opacity-75 text-white"
-        /> */}
+        />
       </div>
     </TooltipProvider>
   );
