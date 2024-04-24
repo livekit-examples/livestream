@@ -1,6 +1,6 @@
 # LiveKit Livestreaming Demo
 
-<img width="1095" alt="Screenshot 2023-11-03 at 10 13 37 AM" src="https://github.com/livekit/cloud-site/assets/304392/00f28e36-54bd-4b48-84fe-5fc6eb92a309">
+![alt text](demo-screenshot.png)
 
 This is a demo app for livestreaming via RTMP or WHIP using LiveKit. One user is a broadcaster who gets an RTMP/WHIP for streaming (eg, via OBS). Other users can view their stream and chat. We also let you broadcast directly from your device from the "Host" page.
 
