@@ -39,7 +39,6 @@ export default function Presence({ participantIdentity }: { participantIdentity:
                   />
                 </div>
 
-                {console.log(participant.trackPublications)}
                 <div className="text-sm">
                   {participant.identity}
                   {participant.identity === participantIdentity && " (You)"}
