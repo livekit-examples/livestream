@@ -1,20 +1,11 @@
 import { DialogDescription, DialogTitle } from "@radix-ui/react-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTrigger,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTrigger } from "./ui/dialog";
 
 import { useParticipants } from "@livekit/components-react";
 import { useState } from "react";
 import { Icons } from "./ui/icons";
 
-export default function Presence({
-  participantIdentity,
-}: {
-  participantIdentity: string;
-}) {
+export default function Presence({ participantIdentity }: { participantIdentity: string }) {
   const [open, setOpen] = useState(false);
   const participants = useParticipants();
 
@@ -30,8 +21,7 @@ export default function Presence({
         <DialogHeader>
           <DialogTitle>
             <div className="border-b pb-4 text-lg font-bold">
-              {participants.length}{" "}
-              {participants.length > 1 ? "people" : "person"} here
+              {participants.length} {participants.length > 1 ? "people" : "person"} here
             </div>
           </DialogTitle>
           <DialogDescription></DialogDescription>
@@ -48,10 +38,12 @@ export default function Presence({
                     alt={participant.identity}
                   />
                 </div>
+
+                {console.log(participant.trackPublications)}
                 <div className="text-sm">
                   {participant.identity}
                   {participant.identity === participantIdentity && " (You)"}
-                  {participant.videoTracks.size > 0 && " (Host)"}
+                  {participant.videoTrackPublications.size > 0 && " (Host)"}
                 </div>
               </div>
             </li>
