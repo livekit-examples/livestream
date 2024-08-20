@@ -1,55 +1,51 @@
-import GetStartedForm from "@/components/get-started";
-import { Icons } from "@/components/ui/icons";
-import { type Metadata } from "next";
+import { HomeActions } from "@/components/home-actions";
+import { Container, Flex, Kbd, Link, Separator, Text } from "@radix-ui/themes";
+import Image from "next/image";
 
-export const metadata: Metadata = {
-  title: "LiveKit Cast",
-};
-
-export default function IndexPage() {
+export default function Home() {
   return (
-    <section className="items-start px-6 container mx-auto flex max-w-[680px] flex-1 flex-col pt-6 pb-8">
-      <div className="mx-auto flex w-full flex-col items-start gap-4">
-        <div className="flex items-center gap-2">
-          <Icons.livekit className="h-12 text-foreground" />
-          <h1 className="text-[48pt] leading-tight tracking-tighter text-violet-400">
-            Cast
-          </h1>
-        </div>
-        <div className="flex flex-col gap-6 text-foreground">
-          <p className="text-2xl">
-            Open source livestreaming app built on{" "}
-            <a
-              href="https://github.com/livekit/components-js?ref=cast"
-              className="text-violet-500 dark:text-violet-400"
-            >
-              LiveKit Components
-            </a>
-            ,{" "}
-            <a
-              href="https://livekit.io/cloud?ref=cast"
-              className="text-violet-500 dark:text-violet-400"
-            >
+    <main className="flex min-h-screen flex-col items-center gap-12 p-10 sm:p-24">
+      <Container size="1">
+        <Flex direction="column" align="center" gap="5">
+          <Image
+            src="/wordmark.svg"
+            alt="LiveKit"
+            width="240"
+            height="120"
+            className="invert dark:invert-0 mt-8 mb-2"
+          />
+          <Text as="p">
+            Welcome to the LiveKit livestream demo app. You can join or start
+            your own stream. Hosted on{" "}
+            <Link href="https://livekit.io/cloud" target="_blank">
               LiveKit Cloud
-            </a>{" "}
-            and Next.js 14 (including Server Actions).
-          </p>
-          <p>To get started, enter a channel ID below and select an option:</p>
-          <GetStartedForm />
-          <p>
-            Want to deploy this sample app yourself? Our friends at Vercel make
-            it super easy:
-            <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Flivekit-examples%2Flivestream&env=LIVEKIT_API_KEY,LIVEKIT_API_SECRET,LIVEKIT_API_URL,NEXT_PUBLIC_LIVEKIT_WS_URL&envDescription=Sign%20up%20for%20an%20account%20at%20https%3A%2F%2Fcloud.livekit.io%20and%20create%20an%20API%20key%20in%20the%20Project%20Settings%20UI">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                className="mt-4"
-                alt="deploy with vercel"
-                src="https://vercel.com/button"
-              />
-            </a>
-          </p>
-        </div>
-      </div>
-    </section>
+            </Link>
+            . Bored of the current color theme? Switch it up by pressing{" "}
+            <Kbd>⌘&thinsp;C</Kbd> !
+          </Text>
+          <HomeActions />
+          <Separator orientation="horizontal" size="4" className="my-2" />
+          <Text as="p" size="2">
+            Feel free to clone this full-stack NextJS app{" "}
+            <Link
+              href="https://github.com/livekit-examples/nextjs-livestream"
+              target="_blank"
+            >
+              here
+            </Link>
+            .
+            {/* And also be sure to check out clone our{" "}
+            <Link
+              href="https://github.com/livekit-examples/swift-livestream"
+              target="_blank"
+            >
+              iOS
+            </Link>{" "}
+            and <Link href="https://github.com/livekit-examples/android-livestream" target="_blank">Android</Link> clients, which are compatible with
+            this web app! */}
+          </Text>
+        </Flex>
+      </Container>
+    </main>
   );
 }
