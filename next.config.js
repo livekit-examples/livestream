@@ -1,14 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  images: {
-    remotePatterns: [
-      {
-        hostname: "api.dicebear.com",
-      },
-      {
-        hostname: "user-images.githubusercontent.com",
-      },
-    ],
+  experimental: {
+    optimizePackageImports: ["@radix-ui/react-icons"],
   },
 };
 

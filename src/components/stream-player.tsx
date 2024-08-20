@@ -1,170 +1,255 @@
+import { useCopyToClipboard } from "@/lib/clipboard";
+import { ParticipantMetadata, RoomMetadata } from "@/lib/controller";
 import {
+  AudioTrack,
   StartAudio,
-  useConnectionState,
-  useRemoteParticipant,
+  VideoTrack,
+  useDataChannel,
+  useLocalParticipant,
+  useMediaDeviceSelect,
+  useParticipants,
+  useRoomContext,
   useTracks,
 } from "@livekit/components-react";
-import { ConnectionState, Track, type Participant } from "livekit-client";
-import React, { useCallback, useRef, useState } from "react";
+import { CopyIcon, EyeClosedIcon, EyeOpenIcon } from "@radix-ui/react-icons";
+import { Avatar, Badge, Button, Flex, Grid, Text } from "@radix-ui/themes";
+import Confetti from "js-confetti";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+  ConnectionState,
+  LocalVideoTrack,
+  Track,
+  createLocalTracks,
+} from "livekit-client";
+import { useEffect, useRef, useState } from "react";
+import { MediaDeviceSettings } from "./media-device-settings";
+import { PresenceDialog } from "./presence-dialog";
+import { useAuthToken } from "./token-context";
 
-import Link from "next/link";
-import { Icons } from "./ui/icons";
+function ConfettiCanvas() {
+  const [confetti, setConfetti] = useState<Confetti>();
+  const [decoder] = useState(() => new TextDecoder());
+  const canvasEl = useRef<HTMLCanvasElement>(null);
+  useDataChannel("reactions", (data) => {
+    const options: { emojis?: string[]; confettiNumber?: number } = {};
 
-function toString(connectionState: string) {
-  switch (connectionState) {
-    case "connected":
-      return "Connected!";
-    case "connecting":
-      return "Connecting...";
-    case "disconnected":
-      return "Disconnected";
-    case "reconnecting":
-      return "Reconnecting";
-    default:
-      return "Unknown";
-  }
+    if (decoder.decode(data.payload) !== "🎉") {
+      options.emojis = [decoder.decode(data.payload)];
+      options.confettiNumber = 12;
+    }
+
+    confetti?.addConfetti(options);
+  });
+
+  useEffect(() => {
+    setConfetti(new Confetti({ canvas: canvasEl?.current ?? undefined }));
+  }, []);
+
+  return <canvas ref={canvasEl} className="absolute h-full w-full" />;
 }
 
-interface Props {
-  streamerIdentity: string;
-}
+export function StreamPlayer({ isHost = false }) {
+  const [_, copy] = useCopyToClipboard();
 
-export default function StreamPlayerWrapper({ streamerIdentity }: Props) {
-  const connectionState = useConnectionState();
-  const participant = useRemoteParticipant(streamerIdentity);
-  const tracks = useTracks(Object.values(Track.Source)).filter(
-    (track) => track.participant.identity === streamerIdentity
+  const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack>();
+  const localVideoEl = useRef<HTMLVideoElement>(null);
+
+  const { metadata, name: roomName, state: roomState } = useRoomContext();
+  const roomMetadata = (metadata && JSON.parse(metadata)) as RoomMetadata;
+  const { localParticipant } = useLocalParticipant();
+  const localMetadata = (localParticipant.metadata &&
+    JSON.parse(localParticipant.metadata)) as ParticipantMetadata;
+  const canHost =
+    isHost || (localMetadata?.invited_to_stage && localMetadata?.hand_raised);
+  const participants = useParticipants();
+  const showNotification = isHost
+    ? participants.some((p) => {
+        const metadata = (p.metadata &&
+          JSON.parse(p.metadata)) as ParticipantMetadata;
+        return metadata?.hand_raised && !metadata?.invited_to_stage;
+      })
+    : localMetadata?.invited_to_stage && !localMetadata?.hand_raised;
+
+  useEffect(() => {
+    if (canHost) {
+      const createTracks = async () => {
+        const tracks = await createLocalTracks({ audio: true, video: true });
+        const camTrack = tracks.find((t) => t.kind === Track.Kind.Video);
+        if (camTrack && localVideoEl?.current) {
+          camTrack.attach(localVideoEl.current);
+        }
+        setLocalVideoTrack(camTrack as LocalVideoTrack);
+      };
+      void createTracks();
+    }
+  }, [canHost]);
+
+  const { activeDeviceId: activeCameraDeviceId } = useMediaDeviceSelect({
+    kind: "videoinput",
+  });
+
+  useEffect(() => {
+    if (localVideoTrack) {
+      void localVideoTrack.setDeviceId(activeCameraDeviceId);
+    }
+  }, [localVideoTrack, activeCameraDeviceId]);
+
+  const remoteVideoTracks = useTracks([Track.Source.Camera]).filter(
+    (t) => t.participant.identity !== localParticipant.identity
   );
 
-  if (connectionState !== ConnectionState.Connected || !participant) {
-    return (
-      <div className="grid aspect-video items-center justify-center bg-black text-sm uppercase text-white">
-        {connectionState === ConnectionState.Connected
-          ? "Stream is offline"
-          : toString(connectionState)}
-      </div>
-    );
-  } else if (tracks.length === 0) {
-    return (
-      <>
-        <div className="flex aspect-video items-center justify-center bg-black text-sm uppercase text-white">
-          <div className="flex gap-2">
-            <div className="h-4 w-4 rounded-full bg-neutral-400 animate-bounce delay-100" />
-            <div className="h-4 w-4 rounded-full bg-neutral-500 animate-bounce delay-200" />
-            <div className="h-4 w-4 rounded-full bg-neutral-600 animate-bounce delay-300" />
-          </div>
-        </div>
-      </>
-    );
-  }
+  const remoteAudioTracks = useTracks([Track.Source.Microphone]).filter(
+    (t) => t.participant.identity !== localParticipant.identity
+  );
 
-  return <StreamPlayer participant={participant} />;
-}
-
-export const StreamPlayer = ({ participant }: { participant: Participant }) => {
-  const [muted, setMuted] = useState(false);
-  const [volume, setVolume] = useState(50);
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const videoEl = useRef<HTMLVideoElement>(null);
-  const playerEl = useRef<HTMLDivElement>(null);
-
-  useTracks(Object.values(Track.Source))
-    .filter((track) => track.participant.identity === participant.identity)
-    .forEach((track) => {
-      if (videoEl.current) {
-        track.publication.track?.attach(videoEl.current);
-      }
+  const authToken = useAuthToken();
+  const onLeaveStage = async () => {
+    await fetch("/api/remove_from_stage", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Token ${authToken}`,
+      },
+      body: JSON.stringify({
+        identity: localParticipant.identity,
+      }),
     });
-
-  const onVolumeChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setMuted(e.target.value === "0");
-      setVolume(+e.target.value);
-      if (videoEl?.current) {
-        videoEl.current.muted = e.target.value === "0";
-        videoEl.current.volume = +e.target.value * 0.01;
-      }
-    },
-    []
-  );
-
-  const onToggleMute = useCallback(() => {
-    setMuted(!muted);
-    setVolume(muted ? 50 : 0);
-    if (videoEl?.current) {
-      videoEl.current.muted = !muted;
-      videoEl.current.volume = muted ? 0.5 : 0;
-    }
-  }, [muted]);
-
-  const onFullScreen = useCallback(() => {
-    if (isFullScreen) {
-      document.exitFullscreen().catch((err) => console.error(err));
-      setIsFullScreen(false);
-    } else if (playerEl?.current) {
-      playerEl.current.requestFullscreen().catch((err) => console.error(err));
-      setIsFullScreen(true);
-    }
-  }, [isFullScreen]);
+  };
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <div className="relative flex aspect-video bg-black" ref={playerEl}>
-        <video ref={videoEl} width="100%" />
-        <div className="absolute top-0 h-full w-full opacity-0 hover:opacity-100 hover:transition-all">
-          <div className="absolute bottom-0 flex h-14 w-full items-center justify-between bg-gradient-to-t from-neutral-900 px-4">
-            <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger>
-                  <div className="text-white" onClick={onToggleMute}>
-                    {muted ? (
-                      <Icons.volumeOff className="h-6 w-6 hover:scale-110 hover:transition-all" />
-                    ) : (
-                      <Icons.volumeOn className="h-6 w-6 hover:scale-110 hover:transition-all" />
-                    )}
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>{muted ? "Unmute" : "Mute"}</TooltipContent>
-              </Tooltip>
-              <input
-                type="range"
-                onChange={onVolumeChange}
-                className="ml-1 h-0.5 w-24 cursor-pointer appearance-none rounded-full bg-white accent-white"
-                value={volume}
+    <div className="relative h-full w-full bg-black">
+      <Grid className="w-full h-full absolute" gap="2">
+        {canHost && (
+          <div className="relative">
+            <Flex
+              className="absolute w-full h-full"
+              align="center"
+              justify="center"
+            >
+              <Avatar
+                size="9"
+                fallback={localParticipant.identity[0] ?? "?"}
+                radius="full"
               />
-            </div>
-            <div className="flex items-center justify-center gap-4">
-              <Tooltip>
-                <TooltipTrigger>
-                  <div className="text-white" onClick={onFullScreen}>
-                    {isFullScreen ? (
-                      <Icons.minimize className="h-5 w-5 hover:scale-110 hover:transition-all" />
-                    ) : (
-                      <Icons.maximize className="h-5 w-5 hover:scale-110 hover:transition-all" />
-                    )}
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isFullScreen ? "Exit fullscreen" : "Enter fullscreen"}
-                </TooltipContent>
-              </Tooltip>
-              <Link href="https://livekit.io/" target="_blank" rel="noreferrer">
-                <Icons.livekit className="w-16 text-white hover:text-rose-400 hover:transition-all" />
-              </Link>
+            </Flex>
+            <video
+              ref={localVideoEl}
+              className="absolute w-full h-full object-contain -scale-x-100 bg-transparent"
+            />
+            <div className="absolute w-full h-full">
+              <Badge
+                variant="outline"
+                color="gray"
+                className="absolute bottom-2 right-2"
+              >
+                {localParticipant.identity} (you)
+              </Badge>
             </div>
           </div>
-        </div>
-        <StartAudio
-          label="Click to allow audio playback"
-          className="absolute top-0 h-full w-full bg-black bg-opacity-75 text-white"
-        />
+        )}
+        {remoteVideoTracks.map((t) => (
+          <div key={t.participant.identity} className="relative">
+            <Flex
+              className="absolute w-full h-full"
+              align="center"
+              justify="center"
+            >
+              <Avatar
+                size="9"
+                fallback={t.participant.identity[0] ?? "?"}
+                radius="full"
+              />
+            </Flex>
+            <VideoTrack
+              trackRef={t}
+              className="absolute w-full h-full bg-transparent"
+            />
+            <div className="absolute w-full h-full">
+              <Badge
+                variant="outline"
+                color="gray"
+                className="absolute bottom-2 right-2"
+              >
+                {t.participant.identity}
+              </Badge>
+            </div>
+          </div>
+        ))}
+      </Grid>
+      {remoteAudioTracks.map((t) => (
+        <AudioTrack trackRef={t} key={t.participant.identity} />
+      ))}
+      <ConfettiCanvas />
+      <StartAudio
+        label="Click to allow audio playback"
+        className="absolute top-0 h-full w-full bg-gray-2-translucent text-white"
+      />
+      <div className="absolute top-0 w-full p-2">
+        <Flex justify="between" align="end">
+          <Flex gap="2" justify="center" align="center">
+            <Button
+              size="1"
+              variant="soft"
+              disabled={!Boolean(roomName)}
+              onClick={() =>
+                copy(`${process.env.NEXT_PUBLIC_SITE_URL}/watch/${roomName}`)
+              }
+            >
+              {roomState === ConnectionState.Connected ? (
+                <>
+                  {roomName} <CopyIcon />
+                </>
+              ) : (
+                "Loading..."
+              )}
+            </Button>
+            {roomName && canHost && (
+              <Flex gap="2">
+                <MediaDeviceSettings />
+                {roomMetadata?.creator_identity !==
+                  localParticipant.identity && (
+                  <Button size="1" onClick={onLeaveStage}>
+                    Leave stage
+                  </Button>
+                )}
+              </Flex>
+            )}
+          </Flex>
+          <Flex gap="2">
+            {roomState === ConnectionState.Connected && (
+              <Flex gap="1" align="center">
+                <div className="rounded-6 bg-red-9 w-2 h-2 animate-pulse" />
+                <Text size="1" className="uppercase text-accent-11">
+                  Live
+                </Text>
+              </Flex>
+            )}
+            <PresenceDialog isHost={isHost}>
+              <div className="relative">
+                {showNotification && (
+                  <div className="absolute flex h-3 w-3 -top-1 -right-1">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-6 bg-accent-11 opacity-75"></span>
+                    <span className="relative inline-flex rounded-6 h-3 w-3 bg-accent-11"></span>
+                  </div>
+                )}
+                <Button
+                  size="1"
+                  variant="soft"
+                  disabled={roomState !== ConnectionState.Connected}
+                >
+                  {roomState === ConnectionState.Connected ? (
+                    <EyeOpenIcon />
+                  ) : (
+                    <EyeClosedIcon />
+                  )}
+                  {roomState === ConnectionState.Connected
+                    ? participants.length
+                    : ""}
+                </Button>
+              </div>
+            </PresenceDialog>
+          </Flex>
+        </Flex>
       </div>
-    </TooltipProvider>
+    </div>
   );
-};
+}
