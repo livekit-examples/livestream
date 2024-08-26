@@ -28,7 +28,7 @@ export default function Home() {
           <Text as="p" size="2">
             Feel free to clone this full-stack NextJS app{" "}
             <Link
-              href="https://github.com/livekit-examples/nextjs-livestream"
+              href="https://github.com/livekit-examples/livestream"
               target="_blank"
             >
               here
