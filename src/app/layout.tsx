@@ -1,14 +1,14 @@
 import "@/styles/globals.css";
 
-import { Theme, ThemePanel } from "@radix-ui/themes";
+import { Theme } from "@radix-ui/themes";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Livestream with LiveKit",
-  description: "A sample full-stack application built with LiveKit",
+  title: "Teleop Control",
+  description: "Remote robot control via LiveKit data tracks",
 };
 
 export default function RootLayout({
@@ -19,14 +19,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <Theme
-          appearance="dark"
-          accentColor="purple"
-          grayColor="mauve"
-          radius="none"
-        >
+        <Theme appearance="light" accentColor="blue" grayColor="slate" radius="small">
           {children}
-          <ThemePanel defaultOpen={false} />
         </Theme>
       </body>
     </html>
