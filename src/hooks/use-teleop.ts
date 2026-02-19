@@ -9,6 +9,12 @@ import {
   parseTeleopMessage,
 } from "@/lib/teleop-messages";
 
+export type TransferRequest = {
+  requesterIdentity: string;
+  timeoutSeconds: number;
+  receivedAt: number; // Date.now()
+};
+
 export type TeleopState = {
   connected: boolean;
   hasControl: boolean;
@@ -16,6 +22,7 @@ export type TeleopState = {
   rttMs: number | null;
   leaseExpiry: string | null;
   lastError: string | null;
+  pendingTransfer: TransferRequest | null;
 };
 
 export function useTeleop(identity: string) {
@@ -31,6 +38,7 @@ export function useTeleop(identity: string) {
     rttMs: null,
     leaseExpiry: null,
     lastError: null,
+    pendingTransfer: null,
   });
 
   const clearLeaseTimer = useCallback(() => {
@@ -129,6 +137,7 @@ export function useTeleop(identity: string) {
               controllerIdentity: msg.teleoperatorIdentity,
               leaseExpiry: msg.leaseExpiry,
               lastError: null,
+              pendingTransfer: null,
             }));
           } else {
             clearLeaseTimer();
@@ -139,6 +148,7 @@ export function useTeleop(identity: string) {
               controllerIdentity: null,
               leaseExpiry: null,
               lastError: msg.denialReason || "Control denied",
+              pendingTransfer: null,
             }));
           }
           break;
@@ -155,6 +165,7 @@ export function useTeleop(identity: string) {
               controllerIdentity: null,
               leaseExpiry: null,
               lastError: null,
+              pendingTransfer: null,
             }));
           } else {
             setState((s) => ({
@@ -162,6 +173,19 @@ export function useTeleop(identity: string) {
               lastError: msg.errorMessage || "Release failed",
             }));
           }
+          break;
+
+        case "control_transfer_request":
+          // Only the current controller receives this
+          if (msg.targetIdentity !== identity) break;
+          setState((s) => ({
+            ...s,
+            pendingTransfer: {
+              requesterIdentity: msg.requesterIdentity,
+              timeoutSeconds: msg.timeoutSeconds,
+              receivedAt: Date.now(),
+            },
+          }));
           break;
 
         case "rtt_update":
@@ -197,6 +221,24 @@ export function useTeleop(identity: string) {
     });
   }, [sendMessage, identity]);
 
+  const acceptTransfer = useCallback(() => {
+    sendMessage({
+      type: "control_transfer_decision",
+      userIdentity: identity,
+      accepted: true,
+    });
+    setState((s) => ({ ...s, pendingTransfer: null }));
+  }, [sendMessage, identity]);
+
+  const denyTransfer = useCallback(() => {
+    sendMessage({
+      type: "control_transfer_decision",
+      userIdentity: identity,
+      accepted: false,
+    });
+    setState((s) => ({ ...s, pendingTransfer: null }));
+  }, [sendMessage, identity]);
+
   const sendCommand = useCallback(
     (linearX: number, linearY: number, angular: number) => {
       sequenceRef.current += 1;
@@ -220,6 +262,8 @@ export function useTeleop(identity: string) {
     state,
     requestControl,
     releaseControl,
+    acceptTransfer,
+    denyTransfer,
     sendCommand,
   };
 }

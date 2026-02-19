@@ -11,7 +11,7 @@ const MAX_ANGULAR_SPEED = 0.5; // rad/s
 const COMMAND_RATE_MS = 100; // 10 Hz
 
 export function TeleopPanel({ identity }: { identity: string }) {
-  const { state, requestControl, releaseControl, sendCommand } =
+  const { state, requestControl, releaseControl, acceptTransfer, denyTransfer, sendCommand } =
     useTeleop(identity);
 
   const joystickRef = useRef({ x: 0, y: 0 });
@@ -157,6 +157,17 @@ export function TeleopPanel({ identity }: { identity: string }) {
 
           {/* Control status */}
           <ControlStatus state={state} />
+
+          {/* Transfer request notification */}
+          {state.pendingTransfer && (
+            <TransferRequestBanner
+              requester={state.pendingTransfer.requesterIdentity}
+              timeoutSeconds={state.pendingTransfer.timeoutSeconds}
+              receivedAt={state.pendingTransfer.receivedAt}
+              onAccept={acceptTransfer}
+              onDeny={denyTransfer}
+            />
+          )}
 
           {/* Control button */}
           {!state.hasControl ? (
@@ -363,6 +374,82 @@ function VelocityDisplay({ linear, angular }: { linear: number; angular: number 
           {angular >= 0 ? "\u00a0" : ""}{angular.toFixed(2)}
         </span>
         <span className="text-[10px]" style={{ color: "#b0b8c4" }}>r/s</span>
+      </div>
+    </div>
+  );
+}
+
+function TransferRequestBanner({
+  requester,
+  timeoutSeconds,
+  receivedAt,
+  onAccept,
+  onDeny,
+}: {
+  requester: string;
+  timeoutSeconds: number;
+  receivedAt: number;
+  onAccept: () => void;
+  onDeny: () => void;
+}) {
+  const [remaining, setRemaining] = useState(timeoutSeconds);
+
+  useEffect(() => {
+    const update = () => {
+      const elapsed = (Date.now() - receivedAt) / 1000;
+      setRemaining(Math.max(0, Math.ceil(timeoutSeconds - elapsed)));
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [timeoutSeconds, receivedAt]);
+
+  return (
+    <div
+      className="p-3 rounded-xl"
+      style={{
+        background: "linear-gradient(to bottom, #eff6ff, #dbeafe)",
+        border: "1px solid #93c5fd",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="7" stroke="#3b82f6" strokeWidth="1.5"/>
+          <path d="M8 4v4" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
+          <circle cx="8" cy="11" r="0.75" fill="#3b82f6"/>
+        </svg>
+        <p className="text-sm font-medium" style={{ color: "#1e40af" }}>
+          Transfer Request
+        </p>
+        <span className="ml-auto font-mono text-xs" style={{ color: "#3b82f6" }}>
+          {remaining}s
+        </span>
+      </div>
+      <p className="text-xs mb-3" style={{ color: "#1e40af" }}>
+        <strong>{requester}</strong> wants control of the robot.
+      </p>
+      <div className="flex gap-2">
+        <button
+          onClick={onAccept}
+          className="flex-1 py-1.5 text-xs font-medium rounded-lg text-white transition-all"
+          style={{
+            background: "linear-gradient(to bottom, #3b82f6, #2563eb)",
+            boxShadow: "0 1px 2px rgba(37,99,235,0.3)",
+          }}
+        >
+          Yield Control
+        </button>
+        <button
+          onClick={onDeny}
+          className="flex-1 py-1.5 text-xs font-medium rounded-lg transition-all"
+          style={{
+            background: "#ffffff",
+            border: "1px solid #d1d5db",
+            color: "#374151",
+          }}
+        >
+          Keep Control
+        </button>
       </div>
     </div>
   );
