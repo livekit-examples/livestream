@@ -55,6 +55,19 @@ export type Pong = {
   timestamp: string;
 };
 
+export type ControlTransferRequest = {
+  type: "control_transfer_request";
+  targetIdentity: string;
+  requesterIdentity: string;
+  timeoutSeconds: number;
+};
+
+export type ControlTransferDecision = {
+  type: "control_transfer_decision";
+  userIdentity: string;
+  accepted: boolean;
+};
+
 export type RttUpdate = {
   type: "rtt_update";
   rttMs: number;
@@ -66,6 +79,8 @@ export type TeleopMessage =
   | ControlResponse
   | ReleaseControl
   | ReleaseControlResponse
+  | ControlTransferRequest
+  | ControlTransferDecision
   | Command
   | Ping
   | Pong
