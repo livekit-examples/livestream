@@ -9,10 +9,13 @@ import { Joystick } from "./joystick";
 const MAX_LINEAR_SPEED = 0.5; // m/s
 const MAX_ANGULAR_SPEED = 0.5; // rad/s
 const COMMAND_RATE_MS = 100; // 10 Hz
+const VIDEO_STALE_MS = 500; // 500ms without a new frame = stale
+const RTT_THRESHOLD_MS = 200; // must match backend SafetyValidator
 
 export function TeleopPanel({ identity }: { identity: string }) {
   const { state, requestControl, releaseControl, acceptTransfer, denyTransfer, sendCommand } =
     useTeleop(identity);
+  const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true });
 
   const joystickRef = useRef({ x: 0, y: 0 });
   const hasControlRef = useRef(state.hasControl);
@@ -20,10 +23,55 @@ export function TeleopPanel({ identity }: { identity: string }) {
 
   const [velocity, setVelocity] = useState({ linear: 0, angular: 0 });
 
+  // --- Video staleness tracking via requestVideoFrameCallback ---
+  // Use state (not ref) for the video element so assignment triggers a re-render
+  // and the effect below re-runs. A ref would silently update without re-running.
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const lastFrameTimeRef = useRef<number>(0);
+  const [videoFresh, setVideoFresh] = useState(false);
+
+  // Register requestVideoFrameCallback when we get a video element
+  useEffect(() => {
+    if (!videoEl || !("requestVideoFrameCallback" in videoEl)) return;
+
+    let handle: number;
+    const onFrame = () => {
+      lastFrameTimeRef.current = Date.now();
+      handle = (videoEl as any).requestVideoFrameCallback(onFrame);
+    };
+    handle = (videoEl as any).requestVideoFrameCallback(onFrame);
+    return () => (videoEl as any).cancelVideoFrameCallback(handle);
+  }, [videoEl]);
+
+  // Poll staleness at 100ms intervals
+  useEffect(() => {
+    const id = setInterval(() => {
+      const fresh = lastFrameTimeRef.current > 0
+        && (Date.now() - lastFrameTimeRef.current) < VIDEO_STALE_MS;
+      setVideoFresh(fresh);
+    }, 100);
+    return () => clearInterval(id);
+  }, []);
+
+  // --- Safety block reason ---
+  const hasVideo = tracks.length > 0;
+  const safetyBlockReason: string | null = !hasVideo
+    ? "No video stream available"
+    : !videoFresh
+    ? "Video stream is stale"
+    : state.rttMs !== null && state.rttMs > RTT_THRESHOLD_MS
+    ? `Latency too high (${state.rttMs.toFixed(0)}ms > ${RTT_THRESHOLD_MS}ms)`
+    : null;
+
+  const controlsBlocked = safetyBlockReason !== null;
+  const safetyBlockRef = useRef(controlsBlocked);
+  safetyBlockRef.current = controlsBlocked;
+
   // Send commands at fixed rate while joystick is displaced
   useEffect(() => {
     if (!state.hasControl) return;
     const interval = setInterval(() => {
+      if (safetyBlockRef.current) return;
       const { x, y } = joystickRef.current;
       if (x === 0 && y === 0) return;
       sendCommand(-y * MAX_LINEAR_SPEED, 0, -x * MAX_ANGULAR_SPEED);
@@ -52,7 +100,7 @@ export function TeleopPanel({ identity }: { identity: string }) {
       sendCommand(lin, 0, ang);
     };
     const down = (e: KeyboardEvent) => {
-      if (!hasControlRef.current) return;
+      if (!hasControlRef.current || safetyBlockRef.current) return;
       const k = e.key.toLowerCase();
       if (k === " ") { e.preventDefault(); sendCommand(0, 0, 0); setVelocity({ linear: 0, angular: 0 }); return; }
       if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = true; emit(); }
@@ -66,10 +114,19 @@ export function TeleopPanel({ identity }: { identity: string }) {
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [sendCommand]);
 
-  const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true });
-
   return (
     <div className="flex flex-col h-full" style={{ background: "#eef2f7" }}>
+      {/* Transfer request modal (full-screen overlay) */}
+      {state.pendingTransfer && (
+        <TransferRequestModal
+          requester={state.pendingTransfer.requesterIdentity}
+          timeoutSeconds={state.pendingTransfer.timeoutSeconds}
+          receivedAt={state.pendingTransfer.receivedAt}
+          onAccept={acceptTransfer}
+          onDeny={denyTransfer}
+        />
+      )}
+
       {/* Header */}
       <header
         className="flex items-center justify-between px-5 py-3"
@@ -115,6 +172,7 @@ export function TeleopPanel({ identity }: { identity: string }) {
           {tracks.length > 0 ? (
             <video
               ref={(el) => {
+                setVideoEl(el);
                 if (el && tracks[0]?.publication?.track) {
                   tracks[0].publication.track.attach(el);
                 }
@@ -137,8 +195,8 @@ export function TeleopPanel({ identity }: { identity: string }) {
           )}
           <div className="absolute top-3 left-3">
             <StatusPill
-              color={tracks.length > 0 ? "green" : "neutral"}
-              label={tracks.length > 0 ? "Video OK" : "No Video"}
+              color={!hasVideo ? "neutral" : videoFresh ? "green" : "yellow"}
+              label={!hasVideo ? "No Video" : videoFresh ? "Video OK" : "Video Stale"}
             />
           </div>
         </div>
@@ -158,28 +216,41 @@ export function TeleopPanel({ identity }: { identity: string }) {
           {/* Control status */}
           <ControlStatus state={state} />
 
-          {/* Transfer request notification */}
-          {state.pendingTransfer && (
-            <TransferRequestBanner
-              requester={state.pendingTransfer.requesterIdentity}
-              timeoutSeconds={state.pendingTransfer.timeoutSeconds}
-              receivedAt={state.pendingTransfer.receivedAt}
-              onAccept={acceptTransfer}
-              onDeny={denyTransfer}
-            />
+          {/* Awaiting transfer notification (shown to the requester) */}
+          {state.awaitingTransfer && (
+            <div
+              className="p-3 rounded-xl"
+              style={{ background: "#eff6ff", border: "1px solid #bfdbfe" }}
+            >
+              <div className="flex items-center gap-2">
+                <svg className="animate-spin flex-shrink-0" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="6" stroke="#bfdbfe" strokeWidth="1.5" />
+                  <path d="M7 1a6 6 0 0 1 6 6" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                <p className="text-xs" style={{ color: "#1e40af" }}>
+                  The current operator has been asked to yield control.
+                  Waiting for their response...
+                </p>
+              </div>
+            </div>
           )}
 
           {/* Control button */}
           {!state.hasControl ? (
             <button
               onClick={requestControl}
-              className="w-full py-2.5 text-white rounded-xl font-medium text-sm transition-all"
+              disabled={!hasVideo || state.awaitingTransfer}
+              className="w-full py-2.5 text-white rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
-                background: "linear-gradient(to bottom, #3b82f6, #2563eb)",
-                boxShadow: "0 1px 2px rgba(37,99,235,0.3), 0 0 0 1px rgba(37,99,235,0.1)",
+                background: hasVideo && !state.awaitingTransfer
+                  ? "linear-gradient(to bottom, #3b82f6, #2563eb)"
+                  : "#94a3b8",
+                boxShadow: hasVideo && !state.awaitingTransfer
+                  ? "0 1px 2px rgba(37,99,235,0.3), 0 0 0 1px rgba(37,99,235,0.1)"
+                  : "none",
               }}
             >
-              Request Control
+              {!hasVideo ? "Waiting for Video..." : state.awaitingTransfer ? "Transfer Pending..." : "Request Control"}
             </button>
           ) : (
             <button
@@ -203,16 +274,32 @@ export function TeleopPanel({ identity }: { identity: string }) {
               className="flex flex-col gap-2 p-3 rounded-xl"
               style={{ background: "#f8fafc", border: "1px solid #f1f5f9" }}
             >
+              {controlsBlocked && (
+                <div
+                  className="flex items-center gap-2 p-2 rounded-lg"
+                  style={{ background: "#fef2f2", border: "1px solid #fecaca" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
+                    <circle cx="7" cy="7" r="6" stroke="#ef4444" strokeWidth="1.5"/>
+                    <line x1="7" y1="4" x2="7" y2="8" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round"/>
+                    <circle cx="7" cy="10" r="0.75" fill="#ef4444"/>
+                  </svg>
+                  <p className="text-xs" style={{ color: "#991b1b" }}>
+                    {safetyBlockReason}
+                  </p>
+                </div>
+              )}
               <div className="flex gap-3 items-start">
                 <Joystick
                   onChange={handleJoystickChange}
                   onRelease={handleJoystickRelease}
                   size={130}
+                  disabled={controlsBlocked}
                 />
                 <VelocityDisplay linear={velocity.linear} angular={velocity.angular} />
               </div>
               <p className="text-center" style={{ fontSize: 10, color: "#94a3b8" }}>
-                Drag joystick or use WASD keys · Space = stop
+                {controlsBlocked ? "Controls disabled — safety check failed" : "Drag joystick or use WASD keys · Space = stop"}
               </p>
             </div>
           )}
@@ -228,7 +315,7 @@ export function TeleopPanel({ identity }: { identity: string }) {
               small
             />
             <StatusPill
-              color={tracks.length > 0 ? "green" : "neutral"}
+              color={!hasVideo ? "neutral" : videoFresh ? "green" : "yellow"}
               label="Camera"
               small
             />
@@ -379,7 +466,7 @@ function VelocityDisplay({ linear, angular }: { linear: number; angular: number 
   );
 }
 
-function TransferRequestBanner({
+function TransferRequestModal({
   requester,
   timeoutSeconds,
   receivedAt,
@@ -397,59 +484,95 @@ function TransferRequestBanner({
   useEffect(() => {
     const update = () => {
       const elapsed = (Date.now() - receivedAt) / 1000;
-      setRemaining(Math.max(0, Math.ceil(timeoutSeconds - elapsed)));
+      const left = Math.max(0, Math.ceil(timeoutSeconds - elapsed));
+      setRemaining(left);
+      if (left <= 0) onDeny();
     };
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [timeoutSeconds, receivedAt]);
+  }, [timeoutSeconds, receivedAt, onDeny]);
+
+  const progress = remaining / timeoutSeconds;
 
   return (
     <div
-      className="p-3 rounded-xl"
-      style={{
-        background: "linear-gradient(to bottom, #eff6ff, #dbeafe)",
-        border: "1px solid #93c5fd",
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: "rgba(0, 0, 0, 0.5)", backdropFilter: "blur(2px)" }}
     >
-      <div className="flex items-center gap-2 mb-2">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="7" stroke="#3b82f6" strokeWidth="1.5"/>
-          <path d="M8 4v4" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
-          <circle cx="8" cy="11" r="0.75" fill="#3b82f6"/>
-        </svg>
-        <p className="text-sm font-medium" style={{ color: "#1e40af" }}>
-          Transfer Request
-        </p>
-        <span className="ml-auto font-mono text-xs" style={{ color: "#3b82f6" }}>
-          {remaining}s
-        </span>
-      </div>
-      <p className="text-xs mb-3" style={{ color: "#1e40af" }}>
-        <strong>{requester}</strong> wants control of the robot.
-      </p>
-      <div className="flex gap-2">
-        <button
-          onClick={onAccept}
-          className="flex-1 py-1.5 text-xs font-medium rounded-lg text-white transition-all"
-          style={{
-            background: "linear-gradient(to bottom, #3b82f6, #2563eb)",
-            boxShadow: "0 1px 2px rgba(37,99,235,0.3)",
-          }}
-        >
-          Yield Control
-        </button>
-        <button
-          onClick={onDeny}
-          className="flex-1 py-1.5 text-xs font-medium rounded-lg transition-all"
-          style={{
-            background: "#ffffff",
-            border: "1px solid #d1d5db",
-            color: "#374151",
-          }}
-        >
-          Keep Control
-        </button>
+      <div
+        className="w-[22rem] rounded-2xl overflow-hidden"
+        style={{
+          background: "#ffffff",
+          boxShadow: "0 25px 50px rgba(0,0,0,0.25)",
+        }}
+      >
+        {/* Timeout progress bar */}
+        <div style={{ height: 3, background: "#e2e8f0" }}>
+          <div
+            style={{
+              height: "100%",
+              width: `${progress * 100}%`,
+              background: remaining <= 5 ? "#f59e0b" : "#3b82f6",
+              transition: "width 1s linear, background 0.3s",
+            }}
+          />
+        </div>
+
+        <div className="p-5">
+          {/* Icon + title */}
+          <div className="flex items-center gap-3 mb-3">
+            <div
+              className="flex items-center justify-center rounded-full"
+              style={{ width: 40, height: 40, background: "#eff6ff" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 3v7" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
+                <circle cx="10" cy="14" r="1" fill="#3b82f6"/>
+                <circle cx="10" cy="10" r="8.5" stroke="#3b82f6" strokeWidth="1.5"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold" style={{ color: "#1e293b" }}>
+                Control Transfer Request
+              </p>
+              <p className="text-xs" style={{ color: "#64748b" }}>
+                {remaining}s remaining
+              </p>
+            </div>
+          </div>
+
+          {/* Message */}
+          <p className="text-sm mb-4" style={{ color: "#475569" }}>
+            <strong style={{ color: "#1e293b" }}>{requester}</strong> is requesting
+            control of the robot. Would you like to yield?
+          </p>
+
+          {/* Buttons */}
+          <div className="flex gap-3">
+            <button
+              onClick={onAccept}
+              className="flex-1 py-2.5 text-sm font-medium rounded-xl text-white transition-all"
+              style={{
+                background: "linear-gradient(to bottom, #3b82f6, #2563eb)",
+                boxShadow: "0 1px 2px rgba(37,99,235,0.3)",
+              }}
+            >
+              Yield Control
+            </button>
+            <button
+              onClick={onDeny}
+              className="flex-1 py-2.5 text-sm font-medium rounded-xl transition-all"
+              style={{
+                background: "#ffffff",
+                border: "1px solid #d1d5db",
+                color: "#374151",
+              }}
+            >
+              Keep Control
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

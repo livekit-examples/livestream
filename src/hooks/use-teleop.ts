@@ -23,6 +23,8 @@ export type TeleopState = {
   leaseExpiry: string | null;
   lastError: string | null;
   pendingTransfer: TransferRequest | null;
+  /** True while we're waiting for someone else to yield control to us. */
+  awaitingTransfer: boolean;
 };
 
 export function useTeleop(identity: string) {
@@ -39,6 +41,7 @@ export function useTeleop(identity: string) {
     leaseExpiry: null,
     lastError: null,
     pendingTransfer: null,
+    awaitingTransfer: false,
   });
 
   const clearLeaseTimer = useCallback(() => {
@@ -138,6 +141,7 @@ export function useTeleop(identity: string) {
               leaseExpiry: msg.leaseExpiry,
               lastError: null,
               pendingTransfer: null,
+              awaitingTransfer: false,
             }));
           } else {
             clearLeaseTimer();
@@ -149,6 +153,7 @@ export function useTeleop(identity: string) {
               leaseExpiry: null,
               lastError: msg.denialReason || "Control denied",
               pendingTransfer: null,
+              awaitingTransfer: false,
             }));
           }
           break;
@@ -166,6 +171,7 @@ export function useTeleop(identity: string) {
               leaseExpiry: null,
               lastError: null,
               pendingTransfer: null,
+              awaitingTransfer: false,
             }));
           } else {
             setState((s) => ({
@@ -176,16 +182,23 @@ export function useTeleop(identity: string) {
           break;
 
         case "control_transfer_request":
-          // Only the current controller receives this
-          if (msg.targetIdentity !== identity) break;
-          setState((s) => ({
-            ...s,
-            pendingTransfer: {
-              requesterIdentity: msg.requesterIdentity,
-              timeoutSeconds: msg.timeoutSeconds,
-              receivedAt: Date.now(),
-            },
-          }));
+          if (msg.targetIdentity === identity) {
+            // We're the current controller — someone wants our control
+            setState((s) => ({
+              ...s,
+              pendingTransfer: {
+                requesterIdentity: msg.requesterIdentity,
+                timeoutSeconds: msg.timeoutSeconds,
+                receivedAt: Date.now(),
+              },
+            }));
+          } else if (msg.requesterIdentity === identity) {
+            // We're the requester — the current controller has been asked to yield
+            setState((s) => ({
+              ...s,
+              awaitingTransfer: true,
+            }));
+          }
           break;
 
         case "rtt_update":
