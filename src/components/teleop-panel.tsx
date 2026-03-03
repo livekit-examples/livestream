@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTeleop, TeleopState } from "@/hooks/use-teleop";
 import { useTracks } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { Track, RemoteTrackPublication } from "livekit-client";
 import { Joystick } from "./joystick";
 
 const MAX_LINEAR_SPEED = 0.5; // m/s
@@ -22,6 +22,20 @@ export function TeleopPanel({ identity }: { identity: string }) {
   hasControlRef.current = state.hasControl;
 
   const [velocity, setVelocity] = useState({ linear: 0, angular: 0 });
+
+  // --- Minimize browser-side jitter buffer via playout delay hint ---
+  // Lower values reduce latency but make playback more sensitive to jitter.
+  // 0–50ms is aggressive but appropriate for teleop over Starlink.
+  useEffect(() => {
+    const pub0 = tracks[0]?.publication;
+    if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) return;
+    const remoteTrack = pub0.track;
+    if (remoteTrack && "setPlayoutDelay" in remoteTrack) {
+      // setPlayoutDelay takes seconds: { min, max }
+      (remoteTrack as any).setPlayoutDelay({ min: 0, max: 0.05 });
+      console.log("[teleop] playout delay set to {min:0, max:50ms}");
+    }
+  }, [tracks]);
 
   // --- Video staleness tracking via requestVideoFrameCallback ---
   // Use state (not ref) for the video element so assignment triggers a re-render
@@ -52,6 +66,66 @@ export function TeleopPanel({ identity }: { identity: string }) {
     }, 100);
     return () => clearInterval(id);
   }, []);
+
+  // --- WebRTC video stats (latency diagnostics) ---
+  // Polls inbound-rtp stats every 2s and logs jitter buffer, decode, and loss metrics.
+  useEffect(() => {
+    const pub0 = tracks[0]?.publication;
+    if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) return;
+    const remoteTrack = pub0.track;
+    if (!remoteTrack) return;
+
+    // Access the underlying RTCRtpReceiver via the track's mediaStreamTrack
+    const mediaTrack = remoteTrack.mediaStreamTrack;
+    if (!mediaTrack) return;
+
+    // Keep previous values for delta computation
+    let prevJitterBufferDelay = 0;
+    let prevJitterBufferEmitted = 0;
+    let prevFramesDecoded = 0;
+    let prevFramesDropped = 0;
+
+    const interval = setInterval(async () => {
+      try {
+        // Try to get stats from the RTCPeerConnection via livekit internals
+        const receiver = (remoteTrack as any).receiver as RTCRtpReceiver | undefined;
+        if (!receiver) return;
+        const stats = await receiver.getStats();
+        stats.forEach((report: any) => {
+          if (report.type === "inbound-rtp" && report.kind === "video") {
+            const jbDelay = report.jitterBufferDelay ?? 0;
+            const jbEmitted = report.jitterBufferEmittedCount ?? 0;
+            const framesDecoded = report.framesDecoded ?? 0;
+            const framesDropped = report.framesDropped ?? 0;
+
+            // Compute average jitter buffer delay over this interval
+            const deltaDelay = jbDelay - prevJitterBufferDelay;
+            const deltaEmitted = jbEmitted - prevJitterBufferEmitted;
+            const avgJbMs = deltaEmitted > 0 ? (deltaDelay / deltaEmitted) * 1000 : 0;
+
+            const deltaDecoded = framesDecoded - prevFramesDecoded;
+            const deltaDropped = framesDropped - prevFramesDropped;
+
+            console.log(
+              `[teleop-stats] jitterBuffer=${avgJbMs.toFixed(1)}ms ` +
+              `decoded=${deltaDecoded} dropped=${deltaDropped} ` +
+              `nack=${report.nackCount ?? 0} pli=${report.pliCount ?? 0} ` +
+              `bytesRcvd=${report.bytesReceived ?? 0}`
+            );
+
+            prevJitterBufferDelay = jbDelay;
+            prevJitterBufferEmitted = jbEmitted;
+            prevFramesDecoded = framesDecoded;
+            prevFramesDropped = framesDropped;
+          }
+        });
+      } catch {
+        // Stats collection is best-effort; don't spam errors
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [tracks]);
 
   // --- Safety block reason ---
   const hasVideo = tracks.length > 0;
