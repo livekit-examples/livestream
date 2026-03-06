@@ -25,15 +25,16 @@ export function TeleopPanel({ identity }: { identity: string }) {
 
   // --- Minimize browser-side jitter buffer via playout delay hint ---
   // Lower values reduce latency but make playback more sensitive to jitter.
-  // 0–50ms is aggressive but appropriate for teleop over Starlink.
+  // 100ms matches ugur-webrtc_teleop_test; 50ms was too aggressive for Starlink
+  // jitter (80-220ms RTT spikes cause frame drops at low playout delay).
   useEffect(() => {
     const pub0 = tracks[0]?.publication;
     if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) return;
     const remoteTrack = pub0.track;
     if (remoteTrack && "setPlayoutDelay" in remoteTrack) {
       // setPlayoutDelay takes seconds: { min, max }
-      (remoteTrack as any).setPlayoutDelay({ min: 0, max: 0.05 });
-      console.log("[teleop] playout delay set to {min:0, max:50ms}");
+      (remoteTrack as any).setPlayoutDelay({ min: 0, max: 0.1 });
+      console.log("[teleop] playout delay set to {min:0, max:100ms}");
     }
   }, [tracks]);
 
