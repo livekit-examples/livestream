@@ -174,8 +174,12 @@ export function useTeleop(identity: string) {
               awaitingTransfer: false,
             }));
           } else {
+            // Server revoked control (e.g. lease expired) — clear all control state
             setState((s) => ({
               ...s,
+              hasControl: false,
+              controllerIdentity: null,
+              leaseExpiry: null,
               lastError: msg.errorMessage || "Release failed",
             }));
           }
