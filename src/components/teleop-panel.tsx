@@ -8,7 +8,7 @@ import { Joystick } from "./joystick";
 
 const MAX_LINEAR_SPEED = 0.5; // m/s
 const MAX_ANGULAR_SPEED = 0.5; // rad/s
-const COMMAND_RATE_MS = 100; // 10 Hz
+const COMMAND_RATE_MS = 50; // 20 Hz — must match hal-can-interfaces command interval
 const VIDEO_STALE_MS = 500; // 500ms without a new frame = stale
 const RTT_THRESHOLD_MS = 200; // must match backend SafetyValidator
 
@@ -142,7 +142,7 @@ export function TeleopPanel({ identity }: { identity: string }) {
   const safetyBlockRef = useRef(controlsBlocked);
   safetyBlockRef.current = controlsBlocked;
 
-  // Send commands at fixed rate while joystick is displaced
+  // Send commands at fixed rate while joystick/keyboard is active
   useEffect(() => {
     if (!state.hasControl) return;
     const interval = setInterval(() => {
@@ -165,24 +165,24 @@ export function TeleopPanel({ identity }: { identity: string }) {
     if (hasControlRef.current) sendCommand(0, 0, 0);
   }, [sendCommand]);
 
-  // Keyboard WASD fallback
+  // Keyboard WASD fallback — updates joystickRef so the interval sends at a fixed rate
   useEffect(() => {
     const keys = { w: false, a: false, s: false, d: false };
-    const emit = () => {
-      const lin = (keys.w ? MAX_LINEAR_SPEED : 0) + (keys.s ? -MAX_LINEAR_SPEED : 0);
-      const ang = (keys.a ? MAX_ANGULAR_SPEED : 0) + (keys.d ? -MAX_ANGULAR_SPEED : 0);
-      setVelocity({ linear: lin, angular: ang });
-      sendCommand(lin, 0, ang);
+    const update = () => {
+      const lin = (keys.w ? 1 : 0) + (keys.s ? -1 : 0);
+      const ang = (keys.a ? 1 : 0) + (keys.d ? -1 : 0);
+      joystickRef.current = { x: -ang, y: -lin };
+      setVelocity({ linear: lin * MAX_LINEAR_SPEED, angular: ang * MAX_ANGULAR_SPEED });
     };
     const down = (e: KeyboardEvent) => {
       if (!hasControlRef.current || safetyBlockRef.current) return;
       const k = e.key.toLowerCase();
-      if (k === " ") { e.preventDefault(); sendCommand(0, 0, 0); setVelocity({ linear: 0, angular: 0 }); return; }
-      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = true; emit(); }
+      if (k === " ") { e.preventDefault(); joystickRef.current = { x: 0, y: 0 }; setVelocity({ linear: 0, angular: 0 }); sendCommand(0, 0, 0); return; }
+      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = true; update(); }
     };
     const up = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
-      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = false; emit(); }
+      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = false; update(); }
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
