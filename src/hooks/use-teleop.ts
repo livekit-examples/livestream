@@ -104,6 +104,12 @@ export function useTeleop(identity: string) {
     [room]
   );
 
+  // Track hasControl in a ref so event handlers always see the latest value.
+  const hasControlRef = useRef(false);
+  useEffect(() => {
+    hasControlRef.current = state.hasControl;
+  }, [state.hasControl]);
+
   // Handle incoming messages from the robot
   useEffect(() => {
     const handleData = (
@@ -214,14 +220,50 @@ export function useTeleop(identity: string) {
       }
     };
 
+    // When LiveKit reconnects after a network disruption, the backend may have
+    // fired ParticipantDisconnected and revoked our control. Re-request it so
+    // the operator doesn't have to manually click "Take Control" again.
+    const handleReconnected = () => {
+      console.log("[teleop] LiveKit reconnected");
+      if (hasControlRef.current) {
+        console.log("[teleop] Re-requesting control after reconnect");
+        sendMessage({
+          type: "control_request",
+          userIdentity: identity,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    };
+
+    const handleDisconnected = () => {
+      console.log("[teleop] LiveKit disconnected");
+      clearLeaseTimer();
+      leaseDurationMsRef.current = null;
+      setState((s) => ({
+        ...s,
+        connected: false,
+        hasControl: false,
+        controllerIdentity: null,
+        leaseExpiry: null,
+        rttMs: null,
+        lastError: "Disconnected from room",
+        pendingTransfer: null,
+        awaitingTransfer: false,
+      }));
+    };
+
     room.on(RoomEvent.DataReceived, handleData);
+    room.on(RoomEvent.Reconnected, handleReconnected);
+    room.on(RoomEvent.Disconnected, handleDisconnected);
     setState((s) => ({ ...s, connected: true }));
 
     return () => {
       room.off(RoomEvent.DataReceived, handleData);
+      room.off(RoomEvent.Reconnected, handleReconnected);
+      room.off(RoomEvent.Disconnected, handleDisconnected);
       clearLeaseTimer();
     };
-  }, [room, sendMessage, setLeaseTimer, clearLeaseTimer]);
+  }, [room, sendMessage, identity, setLeaseTimer, clearLeaseTimer]);
 
   const requestControl = useCallback(() => {
     sendMessage({

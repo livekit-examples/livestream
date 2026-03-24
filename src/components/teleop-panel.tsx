@@ -245,17 +245,36 @@ export function TeleopPanel({ identity }: { identity: string }) {
           }}
         >
           {tracks.length > 0 ? (
-            <video
-              ref={(el) => {
-                setVideoEl(el);
-                if (el && tracks[0]?.publication?.track) {
-                  tracks[0].publication.track.attach(el);
-                }
-              }}
-              autoPlay
-              playsInline
-              className="w-full h-full object-contain"
-            />
+            <>
+              <video
+                ref={(el) => {
+                  setVideoEl(el);
+                  if (el && tracks[0]?.publication?.track) {
+                    tracks[0].publication.track.attach(el);
+                  }
+                }}
+                autoPlay
+                playsInline
+                className="w-full h-full object-contain"
+                style={{
+                  // Perceptual sharpening: subtle contrast + saturation boost
+                  // compensates for the softness of H264 compression at low bitrates.
+                  filter: "contrast(1.03) saturate(1.05)",
+                }}
+              />
+              {/* Vignette overlay — darkens edges to reduce "zoomed in" feel */}
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  boxShadow: "inset 0 0 80px 30px rgba(0,0,0,0.25)",
+                }}
+              />
+              {/* Robot width guide lines — 48 inch (1.22m) width projected as
+                  converging lines from the bottom of the frame to the vanishing
+                  point. Positions are approximate and assume a forward-facing
+                  camera centered on the robot. */}
+              <RobotWidthGuide />
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-2">
               <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
@@ -650,6 +669,59 @@ function TransferRequestModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Robot width guide overlay — draws converging perspective lines representing
+ *  the robot's 48-inch (1.22m) width projected into the camera view.
+ *
+ *  The lines originate from the bottom of the frame (where the robot body is)
+ *  and converge toward the vanishing point near the horizon. Positions are
+ *  approximate — no camera calibration is applied. Adjust the constants below
+ *  if the camera mounting changes.
+ */
+function RobotWidthGuide() {
+  // Vanishing point (percentage of video frame)
+  const vx = 50;  // horizontal center
+  const vy = 35;  // roughly where the horizon sits
+
+  // Robot edge positions at the bottom of the frame.
+  // These are visual estimates for a center-mounted forward camera with
+  // ~48° effective HFOV (after 2.5x crop from wide-angle lens).
+  const leftX = 30;
+  const rightX = 70;
+
+  return (
+    <svg
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+    >
+      {/* Left robot edge */}
+      <line
+        x1={leftX} y1={100} x2={vx} y2={vy}
+        stroke="rgba(255,50,50,0.7)"
+        strokeWidth="2.5"
+        vectorEffect="non-scaling-stroke"
+        strokeDasharray="6,4"
+      />
+      {/* Right robot edge */}
+      <line
+        x1={rightX} y1={100} x2={vx} y2={vy}
+        stroke="rgba(255,50,50,0.7)"
+        strokeWidth="2.5"
+        vectorEffect="non-scaling-stroke"
+        strokeDasharray="6,4"
+      />
+      {/* Center line (driving direction) */}
+      <line
+        x1={vx} y1={100} x2={vx} y2={vy}
+        stroke="rgba(255,50,50,0.35)"
+        strokeWidth="2.5"
+        vectorEffect="non-scaling-stroke"
+        strokeDasharray="3,6"
+      />
+    </svg>
   );
 }
 
