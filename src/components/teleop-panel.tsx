@@ -11,6 +11,7 @@ const MAX_ANGULAR_SPEED = 0.5; // rad/s
 const COMMAND_RATE_MS = 50; // 20 Hz — must match hal-can-interfaces command interval
 const VIDEO_STALE_MS = 500; // 500ms without a new frame = stale
 const RTT_THRESHOLD_MS = 200; // must match backend SafetyValidator
+const STALE_WINDOW_MS = 60_000; // 1-minute rolling window for stale event rate
 
 export function TeleopPanel({ identity }: { identity: string }) {
   const { state, requestControl, releaseControl, acceptTransfer, denyTransfer, sendCommand } =
@@ -20,6 +21,8 @@ export function TeleopPanel({ identity }: { identity: string }) {
   const joystickRef = useRef({ x: 0, y: 0 });
   const hasControlRef = useRef(state.hasControl);
   hasControlRef.current = state.hasControl;
+  const rttRef = useRef(state.rttMs);
+  rttRef.current = state.rttMs;
 
   const [velocity, setVelocity] = useState({ linear: 0, angular: 0 });
 
@@ -45,6 +48,13 @@ export function TeleopPanel({ identity }: { identity: string }) {
   const lastFrameTimeRef = useRef<number>(0);
   const [videoFresh, setVideoFresh] = useState(false);
 
+  // --- Stale event tracking (rolling window) ---
+  // Each entry: { timestamp, durationMs } — pruned together so averages stay accurate.
+  const staleEventsRef = useRef<{ timestamp: number; durationMs: number }[]>([]);
+  const staleStartRef = useRef<number | null>(null); // when current stale period began
+  const wasFreshRef = useRef(false);
+  const [staleRate, setStaleRate] = useState<number>(0); // events per minute
+
   // Register requestVideoFrameCallback when we get a video element
   useEffect(() => {
     if (!videoEl || !("requestVideoFrameCallback" in videoEl)) return;
@@ -58,12 +68,33 @@ export function TeleopPanel({ identity }: { identity: string }) {
     return () => (videoEl as any).cancelVideoFrameCallback(handle);
   }, [videoEl]);
 
-  // Poll staleness at 100ms intervals
+  // Poll staleness at 100ms intervals, track fresh→stale transitions
   useEffect(() => {
     const id = setInterval(() => {
+      const now = Date.now();
       const fresh = lastFrameTimeRef.current > 0
-        && (Date.now() - lastFrameTimeRef.current) < VIDEO_STALE_MS;
+        && (now - lastFrameTimeRef.current) < VIDEO_STALE_MS;
       setVideoFresh(fresh);
+
+      // Detect fresh → stale transition
+      if (wasFreshRef.current && !fresh) {
+        staleStartRef.current = now;
+      }
+      // Detect stale → fresh recovery
+      if (!wasFreshRef.current && fresh && staleStartRef.current !== null) {
+        const durationMs = now - staleStartRef.current;
+        staleEventsRef.current.push({ timestamp: now, durationMs });
+        console.warn(
+          `[teleop-video] STALE event recovered after ${(durationMs / 1000).toFixed(1)}s`
+        );
+        staleStartRef.current = null;
+      }
+      wasFreshRef.current = fresh;
+
+      // Prune old events outside the rolling window
+      const cutoff = now - STALE_WINDOW_MS;
+      staleEventsRef.current = staleEventsRef.current.filter(e => e.timestamp > cutoff);
+      setStaleRate(staleEventsRef.current.length);
     }, 100);
     return () => clearInterval(id);
   }, []);
@@ -85,6 +116,8 @@ export function TeleopPanel({ identity }: { identity: string }) {
     let prevJitterBufferEmitted = 0;
     let prevFramesDecoded = 0;
     let prevFramesDropped = 0;
+    let prevBytesReceived = 0;
+    let prevTimestamp = Date.now();
 
     const interval = setInterval(async () => {
       try {
@@ -94,10 +127,12 @@ export function TeleopPanel({ identity }: { identity: string }) {
         const stats = await receiver.getStats();
         stats.forEach((report: any) => {
           if (report.type === "inbound-rtp" && report.kind === "video") {
+            const now = Date.now();
             const jbDelay = report.jitterBufferDelay ?? 0;
             const jbEmitted = report.jitterBufferEmittedCount ?? 0;
             const framesDecoded = report.framesDecoded ?? 0;
             const framesDropped = report.framesDropped ?? 0;
+            const bytesReceived = report.bytesReceived ?? 0;
 
             // Compute average jitter buffer delay over this interval
             const deltaDelay = jbDelay - prevJitterBufferDelay;
@@ -107,17 +142,43 @@ export function TeleopPanel({ identity }: { identity: string }) {
             const deltaDecoded = framesDecoded - prevFramesDecoded;
             const deltaDropped = framesDropped - prevFramesDropped;
 
+            // Bandwidth: kbps over this polling interval
+            const deltaBytes = bytesReceived - prevBytesReceived;
+            const deltaSecs = (now - prevTimestamp) / 1000;
+            const kbps = deltaSecs > 0 ? (deltaBytes * 8) / (deltaSecs * 1000) : 0;
+
+            // FPS: frames decoded in this interval
+            const fps = deltaSecs > 0 ? deltaDecoded / deltaSecs : 0;
+
+            const staleEvents = staleEventsRef.current;
+            const staleEvts = staleEvents.length;
+            const avgStaleSec = staleEvts > 0
+              ? staleEvents.reduce((a, e) => a + e.durationMs, 0) / staleEvts / 1000
+              : 0;
+
+            const rtt = rttRef.current;
+            const networkOneWay = rtt !== null ? rtt / 2 : null;
+            // Estimated e2e: jitter buffer + network one-way + browser decode (~5ms)
+            const estE2e = networkOneWay !== null
+              ? avgJbMs + networkOneWay + 5
+              : null;
+
             console.log(
               `[teleop-stats] jitterBuffer=${avgJbMs.toFixed(1)}ms ` +
+              `rtt=${rtt !== null ? rtt.toFixed(0) : "?"}ms ` +
+              `estBrowserE2e=${estE2e !== null ? estE2e.toFixed(0) : "?"}ms ` +
+              `fps=${fps.toFixed(1)} bw=${kbps.toFixed(0)}kbps ` +
               `decoded=${deltaDecoded} dropped=${deltaDropped} ` +
-              `nack=${report.nackCount ?? 0} pli=${report.pliCount ?? 0} ` +
-              `bytesRcvd=${report.bytesReceived ?? 0}`
+              `staleEvents=${staleEvts}/min avgStaleDuration=${avgStaleSec.toFixed(1)}s ` +
+              `nack=${report.nackCount ?? 0} pli=${report.pliCount ?? 0}`
             );
 
             prevJitterBufferDelay = jbDelay;
             prevJitterBufferEmitted = jbEmitted;
             prevFramesDecoded = framesDecoded;
             prevFramesDropped = framesDropped;
+            prevBytesReceived = bytesReceived;
+            prevTimestamp = now;
           }
         });
       } catch {
@@ -273,7 +334,7 @@ export function TeleopPanel({ identity }: { identity: string }) {
                   converging lines from the bottom of the frame to the vanishing
                   point. Positions are approximate and assume a forward-facing
                   camera centered on the robot. */}
-              <RobotWidthGuide />
+              {/* <RobotWidthGuide /> */}
             </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-2">
@@ -361,6 +422,9 @@ export function TeleopPanel({ identity }: { identity: string }) {
 
           {/* RTT */}
           <RttIndicator rttMs={state.rttMs} />
+
+          {/* Video quality metrics */}
+          <StreamMetrics staleRate={staleRate} />
 
           {/* Joystick area (only when controlling) */}
           {state.hasControl && (
@@ -522,6 +586,26 @@ function RttIndicator({ rttMs }: { rttMs: number | null }) {
       <span className="font-mono text-sm font-semibold" style={{ color }}>
         {rttMs !== null ? `${rttMs.toFixed(0)} ms` : "—"}{" "}
         {status && <span className="text-xs font-normal opacity-75">{status}</span>}
+      </span>
+    </div>
+  );
+}
+
+function StreamMetrics({ staleRate }: { staleRate: number }) {
+  let color = "#166534";
+  let bg = "#f0fdf4";
+  let border = "#dcfce7";
+  if (staleRate >= 5) {
+    color = "#991b1b"; bg = "#fef2f2"; border = "#fecaca";
+  } else if (staleRate >= 1) {
+    color = "#854d0e"; bg = "#fffbeb"; border = "#fef3c7";
+  }
+
+  return (
+    <div className="flex items-center justify-between p-2.5 rounded-xl" style={{ background: bg, border: `1px solid ${border}` }}>
+      <span className="text-xs" style={{ color: "#64748b" }}>Stale events</span>
+      <span className="font-mono text-sm font-semibold" style={{ color }}>
+        {staleRate}/min
       </span>
     </div>
   );

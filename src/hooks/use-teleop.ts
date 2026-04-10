@@ -2,12 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoomContext } from "@livekit/components-react";
-import { DataPacket_Kind, RoomEvent } from "livekit-client";
+import { DataPacket_Kind, RemoteParticipant, RoomEvent } from "livekit-client";
 import {
   TeleopMessage,
   encodeTeleopMessage,
   parseTeleopMessage,
 } from "@/lib/teleop-messages";
+
+/**
+ * Identity of the teleop agent (the robot) in the LiveKit room.
+ * Must match `PARTICIPANT_IDENTITY` in
+ * amiga-apps/teleop-agent-app/src/lib.rs.
+ */
+const ROBOT_IDENTITY = "teleop_agent";
 
 export type TransferRequest = {
   requesterIdentity: string;
@@ -252,15 +259,41 @@ export function useTeleop(identity: string) {
       }));
     };
 
+    // The robot's teleop agent left the room (crashed, network drop, restart).
+    // The lease will eventually expire on its own, but proactively clear control
+    // state so the operator gets immediate feedback instead of trying to drive
+    // a robot that isn't there.
+    const handleParticipantDisconnected = (participant: RemoteParticipant) => {
+      if (participant.identity !== ROBOT_IDENTITY) return;
+      console.log("[teleop] Robot disconnected from room");
+      clearLeaseTimer();
+      leaseDurationMsRef.current = null;
+      setState((s) => ({
+        ...s,
+        hasControl: false,
+        controllerIdentity: null,
+        leaseExpiry: null,
+        rttMs: null,
+        lastError: "Robot disconnected",
+        pendingTransfer: null,
+        awaitingTransfer: false,
+      }));
+    };
+
     room.on(RoomEvent.DataReceived, handleData);
     room.on(RoomEvent.Reconnected, handleReconnected);
     room.on(RoomEvent.Disconnected, handleDisconnected);
+    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
     setState((s) => ({ ...s, connected: true }));
 
     return () => {
       room.off(RoomEvent.DataReceived, handleData);
       room.off(RoomEvent.Reconnected, handleReconnected);
       room.off(RoomEvent.Disconnected, handleDisconnected);
+      room.off(
+        RoomEvent.ParticipantDisconnected,
+        handleParticipantDisconnected
+      );
       clearLeaseTimer();
     };
   }, [room, sendMessage, identity, setLeaseTimer, clearLeaseTimer]);
