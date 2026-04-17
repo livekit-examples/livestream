@@ -69,6 +69,14 @@ export default function TeleopPage() {
       serverUrl={connectionDetails.ws_url}
       token={connectionDetails.token}
       className="h-screen"
+      options={{
+        // adaptiveStream: automatically request the resolution matching the
+        // video element size, avoiding wasted bandwidth on higher layers.
+        adaptiveStream: true,
+        // dynacast: tell the server to stop forwarding layers nobody is
+        // watching, reducing publisher CPU/bandwidth.
+        dynacast: true,
+      }}
     >
       <TeleopPanel identity={identity} />
     </LiveKitRoom>

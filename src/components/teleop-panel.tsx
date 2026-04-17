@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTeleop, TeleopState } from "@/hooks/use-teleop";
 import { useTracks } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { Track, RemoteTrackPublication } from "livekit-client";
 import { Joystick } from "./joystick";
 
 const MAX_LINEAR_SPEED = 0.5; // m/s
 const MAX_ANGULAR_SPEED = 0.5; // rad/s
-const COMMAND_RATE_MS = 100; // 10 Hz
+const COMMAND_RATE_MS = 50; // 20 Hz — must match hal-can-interfaces command interval
 const VIDEO_STALE_MS = 500; // 500ms without a new frame = stale
 const RTT_THRESHOLD_MS = 200; // must match backend SafetyValidator
+const STALE_WINDOW_MS = 60_000; // 1-minute rolling window for stale event rate
 
 export function TeleopPanel({ identity }: { identity: string }) {
   const { state, requestControl, releaseControl, acceptTransfer, denyTransfer, sendCommand } =
@@ -20,8 +21,25 @@ export function TeleopPanel({ identity }: { identity: string }) {
   const joystickRef = useRef({ x: 0, y: 0 });
   const hasControlRef = useRef(state.hasControl);
   hasControlRef.current = state.hasControl;
+  const rttRef = useRef(state.rttMs);
+  rttRef.current = state.rttMs;
 
   const [velocity, setVelocity] = useState({ linear: 0, angular: 0 });
+
+  // --- Minimize browser-side jitter buffer via playout delay hint ---
+  // Lower values reduce latency but make playback more sensitive to jitter.
+  // 100ms matches ugur-webrtc_teleop_test; 50ms was too aggressive for Starlink
+  // jitter (80-220ms RTT spikes cause frame drops at low playout delay).
+  useEffect(() => {
+    const pub0 = tracks[0]?.publication;
+    if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) return;
+    const remoteTrack = pub0.track;
+    if (remoteTrack && "setPlayoutDelay" in remoteTrack) {
+      // setPlayoutDelay takes seconds: { min, max }
+      (remoteTrack as any).setPlayoutDelay({ min: 0, max: 0.1 });
+      console.log("[teleop] playout delay set to {min:0, max:100ms}");
+    }
+  }, [tracks]);
 
   // --- Video staleness tracking via requestVideoFrameCallback ---
   // Use state (not ref) for the video element so assignment triggers a re-render
@@ -29,6 +47,13 @@ export function TeleopPanel({ identity }: { identity: string }) {
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
   const [videoFresh, setVideoFresh] = useState(false);
+
+  // --- Stale event tracking (rolling window) ---
+  // Each entry: { timestamp, durationMs } — pruned together so averages stay accurate.
+  const staleEventsRef = useRef<{ timestamp: number; durationMs: number }[]>([]);
+  const staleStartRef = useRef<number | null>(null); // when current stale period began
+  const wasFreshRef = useRef(false);
+  const [staleRate, setStaleRate] = useState<number>(0); // events per minute
 
   // Register requestVideoFrameCallback when we get a video element
   useEffect(() => {
@@ -43,15 +68,126 @@ export function TeleopPanel({ identity }: { identity: string }) {
     return () => (videoEl as any).cancelVideoFrameCallback(handle);
   }, [videoEl]);
 
-  // Poll staleness at 100ms intervals
+  // Poll staleness at 100ms intervals, track fresh→stale transitions
   useEffect(() => {
     const id = setInterval(() => {
+      const now = Date.now();
       const fresh = lastFrameTimeRef.current > 0
-        && (Date.now() - lastFrameTimeRef.current) < VIDEO_STALE_MS;
+        && (now - lastFrameTimeRef.current) < VIDEO_STALE_MS;
       setVideoFresh(fresh);
+
+      // Detect fresh → stale transition
+      if (wasFreshRef.current && !fresh) {
+        staleStartRef.current = now;
+      }
+      // Detect stale → fresh recovery
+      if (!wasFreshRef.current && fresh && staleStartRef.current !== null) {
+        const durationMs = now - staleStartRef.current;
+        staleEventsRef.current.push({ timestamp: now, durationMs });
+        console.warn(
+          `[teleop-video] STALE event recovered after ${(durationMs / 1000).toFixed(1)}s`
+        );
+        staleStartRef.current = null;
+      }
+      wasFreshRef.current = fresh;
+
+      // Prune old events outside the rolling window
+      const cutoff = now - STALE_WINDOW_MS;
+      staleEventsRef.current = staleEventsRef.current.filter(e => e.timestamp > cutoff);
+      setStaleRate(staleEventsRef.current.length);
     }, 100);
     return () => clearInterval(id);
   }, []);
+
+  // --- WebRTC video stats (latency diagnostics) ---
+  // Polls inbound-rtp stats every 2s and logs jitter buffer, decode, and loss metrics.
+  useEffect(() => {
+    const pub0 = tracks[0]?.publication;
+    if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) return;
+    const remoteTrack = pub0.track;
+    if (!remoteTrack) return;
+
+    // Access the underlying RTCRtpReceiver via the track's mediaStreamTrack
+    const mediaTrack = remoteTrack.mediaStreamTrack;
+    if (!mediaTrack) return;
+
+    // Keep previous values for delta computation
+    let prevJitterBufferDelay = 0;
+    let prevJitterBufferEmitted = 0;
+    let prevFramesDecoded = 0;
+    let prevFramesDropped = 0;
+    let prevBytesReceived = 0;
+    let prevTimestamp = Date.now();
+
+    const interval = setInterval(async () => {
+      try {
+        // Try to get stats from the RTCPeerConnection via livekit internals
+        const receiver = (remoteTrack as any).receiver as RTCRtpReceiver | undefined;
+        if (!receiver) return;
+        const stats = await receiver.getStats();
+        stats.forEach((report: any) => {
+          if (report.type === "inbound-rtp" && report.kind === "video") {
+            const now = Date.now();
+            const jbDelay = report.jitterBufferDelay ?? 0;
+            const jbEmitted = report.jitterBufferEmittedCount ?? 0;
+            const framesDecoded = report.framesDecoded ?? 0;
+            const framesDropped = report.framesDropped ?? 0;
+            const bytesReceived = report.bytesReceived ?? 0;
+
+            // Compute average jitter buffer delay over this interval
+            const deltaDelay = jbDelay - prevJitterBufferDelay;
+            const deltaEmitted = jbEmitted - prevJitterBufferEmitted;
+            const avgJbMs = deltaEmitted > 0 ? (deltaDelay / deltaEmitted) * 1000 : 0;
+
+            const deltaDecoded = framesDecoded - prevFramesDecoded;
+            const deltaDropped = framesDropped - prevFramesDropped;
+
+            // Bandwidth: kbps over this polling interval
+            const deltaBytes = bytesReceived - prevBytesReceived;
+            const deltaSecs = (now - prevTimestamp) / 1000;
+            const kbps = deltaSecs > 0 ? (deltaBytes * 8) / (deltaSecs * 1000) : 0;
+
+            // FPS: frames decoded in this interval
+            const fps = deltaSecs > 0 ? deltaDecoded / deltaSecs : 0;
+
+            const staleEvents = staleEventsRef.current;
+            const staleEvts = staleEvents.length;
+            const avgStaleSec = staleEvts > 0
+              ? staleEvents.reduce((a, e) => a + e.durationMs, 0) / staleEvts / 1000
+              : 0;
+
+            const rtt = rttRef.current;
+            const networkOneWay = rtt !== null ? rtt / 2 : null;
+            // Estimated e2e: jitter buffer + network one-way + browser decode (~5ms)
+            const estE2e = networkOneWay !== null
+              ? avgJbMs + networkOneWay + 5
+              : null;
+
+            console.log(
+              `[teleop-stats] jitterBuffer=${avgJbMs.toFixed(1)}ms ` +
+              `rtt=${rtt !== null ? rtt.toFixed(0) : "?"}ms ` +
+              `estBrowserE2e=${estE2e !== null ? estE2e.toFixed(0) : "?"}ms ` +
+              `fps=${fps.toFixed(1)} bw=${kbps.toFixed(0)}kbps ` +
+              `decoded=${deltaDecoded} dropped=${deltaDropped} ` +
+              `staleEvents=${staleEvts}/min avgStaleDuration=${avgStaleSec.toFixed(1)}s ` +
+              `nack=${report.nackCount ?? 0} pli=${report.pliCount ?? 0}`
+            );
+
+            prevJitterBufferDelay = jbDelay;
+            prevJitterBufferEmitted = jbEmitted;
+            prevFramesDecoded = framesDecoded;
+            prevFramesDropped = framesDropped;
+            prevBytesReceived = bytesReceived;
+            prevTimestamp = now;
+          }
+        });
+      } catch {
+        // Stats collection is best-effort; don't spam errors
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [tracks]);
 
   // --- Safety block reason ---
   const hasVideo = tracks.length > 0;
@@ -67,7 +203,7 @@ export function TeleopPanel({ identity }: { identity: string }) {
   const safetyBlockRef = useRef(controlsBlocked);
   safetyBlockRef.current = controlsBlocked;
 
-  // Send commands at fixed rate while joystick is displaced
+  // Send commands at fixed rate while joystick/keyboard is active
   useEffect(() => {
     if (!state.hasControl) return;
     const interval = setInterval(() => {
@@ -90,24 +226,24 @@ export function TeleopPanel({ identity }: { identity: string }) {
     if (hasControlRef.current) sendCommand(0, 0, 0);
   }, [sendCommand]);
 
-  // Keyboard WASD fallback
+  // Keyboard WASD fallback — updates joystickRef so the interval sends at a fixed rate
   useEffect(() => {
     const keys = { w: false, a: false, s: false, d: false };
-    const emit = () => {
-      const lin = (keys.w ? MAX_LINEAR_SPEED : 0) + (keys.s ? -MAX_LINEAR_SPEED : 0);
-      const ang = (keys.a ? MAX_ANGULAR_SPEED : 0) + (keys.d ? -MAX_ANGULAR_SPEED : 0);
-      setVelocity({ linear: lin, angular: ang });
-      sendCommand(lin, 0, ang);
+    const update = () => {
+      const lin = (keys.w ? 1 : 0) + (keys.s ? -1 : 0);
+      const ang = (keys.a ? 1 : 0) + (keys.d ? -1 : 0);
+      joystickRef.current = { x: -ang, y: -lin };
+      setVelocity({ linear: lin * MAX_LINEAR_SPEED, angular: ang * MAX_ANGULAR_SPEED });
     };
     const down = (e: KeyboardEvent) => {
       if (!hasControlRef.current || safetyBlockRef.current) return;
       const k = e.key.toLowerCase();
-      if (k === " ") { e.preventDefault(); sendCommand(0, 0, 0); setVelocity({ linear: 0, angular: 0 }); return; }
-      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = true; emit(); }
+      if (k === " ") { e.preventDefault(); joystickRef.current = { x: 0, y: 0 }; setVelocity({ linear: 0, angular: 0 }); sendCommand(0, 0, 0); return; }
+      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = true; update(); }
     };
     const up = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
-      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = false; emit(); }
+      if (k in keys) { e.preventDefault(); keys[k as keyof typeof keys] = false; update(); }
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -170,17 +306,36 @@ export function TeleopPanel({ identity }: { identity: string }) {
           }}
         >
           {tracks.length > 0 ? (
-            <video
-              ref={(el) => {
-                setVideoEl(el);
-                if (el && tracks[0]?.publication?.track) {
-                  tracks[0].publication.track.attach(el);
-                }
-              }}
-              autoPlay
-              playsInline
-              className="w-full h-full object-contain"
-            />
+            <>
+              <video
+                ref={(el) => {
+                  setVideoEl(el);
+                  if (el && tracks[0]?.publication?.track) {
+                    tracks[0].publication.track.attach(el);
+                  }
+                }}
+                autoPlay
+                playsInline
+                className="w-full h-full object-contain"
+                style={{
+                  // Perceptual sharpening: subtle contrast + saturation boost
+                  // compensates for the softness of H264 compression at low bitrates.
+                  filter: "contrast(1.03) saturate(1.05)",
+                }}
+              />
+              {/* Vignette overlay — darkens edges to reduce "zoomed in" feel */}
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  boxShadow: "inset 0 0 80px 30px rgba(0,0,0,0.25)",
+                }}
+              />
+              {/* Robot width guide lines — 48 inch (1.22m) width projected as
+                  converging lines from the bottom of the frame to the vanishing
+                  point. Positions are approximate and assume a forward-facing
+                  camera centered on the robot. */}
+              {/* <RobotWidthGuide /> */}
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-2">
               <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
@@ -267,6 +422,9 @@ export function TeleopPanel({ identity }: { identity: string }) {
 
           {/* RTT */}
           <RttIndicator rttMs={state.rttMs} />
+
+          {/* Video quality metrics */}
+          <StreamMetrics staleRate={staleRate} />
 
           {/* Joystick area (only when controlling) */}
           {state.hasControl && (
@@ -433,6 +591,26 @@ function RttIndicator({ rttMs }: { rttMs: number | null }) {
   );
 }
 
+function StreamMetrics({ staleRate }: { staleRate: number }) {
+  let color = "#166534";
+  let bg = "#f0fdf4";
+  let border = "#dcfce7";
+  if (staleRate >= 5) {
+    color = "#991b1b"; bg = "#fef2f2"; border = "#fecaca";
+  } else if (staleRate >= 1) {
+    color = "#854d0e"; bg = "#fffbeb"; border = "#fef3c7";
+  }
+
+  return (
+    <div className="flex items-center justify-between p-2.5 rounded-xl" style={{ background: bg, border: `1px solid ${border}` }}>
+      <span className="text-xs" style={{ color: "#64748b" }}>Stale events</span>
+      <span className="font-mono text-sm font-semibold" style={{ color }}>
+        {staleRate}/min
+      </span>
+    </div>
+  );
+}
+
 function VelocityDisplay({ linear, angular }: { linear: number; angular: number }) {
   const linActive = Math.abs(linear) > 0.01;
   const angActive = Math.abs(angular) > 0.01;
@@ -575,6 +753,59 @@ function TransferRequestModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Robot width guide overlay — draws converging perspective lines representing
+ *  the robot's 48-inch (1.22m) width projected into the camera view.
+ *
+ *  The lines originate from the bottom of the frame (where the robot body is)
+ *  and converge toward the vanishing point near the horizon. Positions are
+ *  approximate — no camera calibration is applied. Adjust the constants below
+ *  if the camera mounting changes.
+ */
+function RobotWidthGuide() {
+  // Vanishing point (percentage of video frame)
+  const vx = 50;  // horizontal center
+  const vy = 35;  // roughly where the horizon sits
+
+  // Robot edge positions at the bottom of the frame.
+  // These are visual estimates for a center-mounted forward camera with
+  // ~48° effective HFOV (after 2.5x crop from wide-angle lens).
+  const leftX = 30;
+  const rightX = 70;
+
+  return (
+    <svg
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+    >
+      {/* Left robot edge */}
+      <line
+        x1={leftX} y1={100} x2={vx} y2={vy}
+        stroke="rgba(255,50,50,0.7)"
+        strokeWidth="2.5"
+        vectorEffect="non-scaling-stroke"
+        strokeDasharray="6,4"
+      />
+      {/* Right robot edge */}
+      <line
+        x1={rightX} y1={100} x2={vx} y2={vy}
+        stroke="rgba(255,50,50,0.7)"
+        strokeWidth="2.5"
+        vectorEffect="non-scaling-stroke"
+        strokeDasharray="6,4"
+      />
+      {/* Center line (driving direction) */}
+      <line
+        x1={vx} y1={100} x2={vx} y2={vy}
+        stroke="rgba(255,50,50,0.35)"
+        strokeWidth="2.5"
+        vectorEffect="non-scaling-stroke"
+        strokeDasharray="3,6"
+      />
+    </svg>
   );
 }
 
