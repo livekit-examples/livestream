@@ -13,10 +13,24 @@ const VIDEO_STALE_MS = 500; // 500ms without a new frame = stale
 const RTT_THRESHOLD_MS = 200; // must match backend SafetyValidator
 const STALE_WINDOW_MS = 60_000; // 1-minute rolling window for stale event rate
 
+/** Extract camera name from a LiveKit participant identity like "robot-video-front". */
+function cameraNameFromIdentity(identity: string): string | null {
+  const prefix = "robot-video-";
+  return identity.startsWith(prefix) ? identity.slice(prefix.length) : null;
+}
+
 export function TeleopPanel({ identity }: { identity: string }) {
-  const { state, requestControl, releaseControl, acceptTransfer, denyTransfer, sendCommand } =
+  const { state, requestControl, releaseControl, acceptTransfer, denyTransfer, sendCommand, selectCameras } =
     useTeleop(identity);
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true });
+
+  // Match tracks to selected cameras by participant identity
+  const selectedTracks = tracks.filter((t) => {
+    const participantId = t.participant?.identity;
+    if (!participantId) return false;
+    const camName = cameraNameFromIdentity(participantId);
+    return camName !== null && state.selectedCameras.includes(camName);
+  });
 
   const joystickRef = useRef({ x: 0, y: 0 });
   const hasControlRef = useRef(state.hasControl);
@@ -31,15 +45,15 @@ export function TeleopPanel({ identity }: { identity: string }) {
   // 100ms matches ugur-webrtc_teleop_test; 50ms was too aggressive for Starlink
   // jitter (80-220ms RTT spikes cause frame drops at low playout delay).
   useEffect(() => {
-    const pub0 = tracks[0]?.publication;
-    if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) return;
-    const remoteTrack = pub0.track;
-    if (remoteTrack && "setPlayoutDelay" in remoteTrack) {
-      // setPlayoutDelay takes seconds: { min, max }
-      (remoteTrack as any).setPlayoutDelay({ min: 0, max: 0.1 });
-      console.log("[teleop] playout delay set to {min:0, max:100ms}");
+    for (const t of selectedTracks) {
+      const pub0 = t.publication;
+      if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) continue;
+      const remoteTrack = pub0.track;
+      if (remoteTrack && "setPlayoutDelay" in remoteTrack) {
+        (remoteTrack as any).setPlayoutDelay({ min: 0, max: 0.1 });
+      }
     }
-  }, [tracks]);
+  }, [selectedTracks]);
 
   // --- Video staleness tracking via requestVideoFrameCallback ---
   // Use state (not ref) for the video element so assignment triggers a re-render
@@ -102,7 +116,7 @@ export function TeleopPanel({ identity }: { identity: string }) {
   // --- WebRTC video stats (latency diagnostics) ---
   // Polls inbound-rtp stats every 2s and logs jitter buffer, decode, and loss metrics.
   useEffect(() => {
-    const pub0 = tracks[0]?.publication;
+    const pub0 = selectedTracks[0]?.publication;
     if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) return;
     const remoteTrack = pub0.track;
     if (!remoteTrack) return;
@@ -187,10 +201,21 @@ export function TeleopPanel({ identity }: { identity: string }) {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [tracks]);
+  }, [selectedTracks]);
+
+  // --- Camera toggle handler ---
+  const toggleCamera = useCallback(
+    (cam: string) => {
+      const selected = state.selectedCameras.includes(cam)
+        ? state.selectedCameras.filter((c) => c !== cam)
+        : [...state.selectedCameras, cam];
+      selectCameras(selected);
+    },
+    [state.selectedCameras, selectCameras]
+  );
 
   // --- Safety block reason ---
-  const hasVideo = tracks.length > 0;
+  const hasVideo = selectedTracks.length > 0;
   const safetyBlockReason: string | null = !hasVideo
     ? "No video stream available"
     : !videoFresh
@@ -297,63 +322,116 @@ export function TeleopPanel({ identity }: { identity: string }) {
 
       {/* Main */}
       <div className="flex flex-1 min-h-0 gap-3 p-3">
-        {/* Video */}
-        <div
-          className="flex-1 relative rounded-xl overflow-hidden"
-          style={{
-            background: "#e2e8f0",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)",
-          }}
-        >
-          {tracks.length > 0 ? (
-            <>
-              <video
-                ref={(el) => {
-                  setVideoEl(el);
-                  if (el && tracks[0]?.publication?.track) {
-                    tracks[0].publication.track.attach(el);
-                  }
-                }}
-                autoPlay
-                playsInline
-                className="w-full h-full object-contain"
-                style={{
-                  // Perceptual sharpening: subtle contrast + saturation boost
-                  // compensates for the softness of H264 compression at low bitrates.
-                  filter: "contrast(1.03) saturate(1.05)",
-                }}
-              />
-              {/* Vignette overlay — darkens edges to reduce "zoomed in" feel */}
-              <div
-                className="absolute inset-0 pointer-events-none"
-                style={{
-                  boxShadow: "inset 0 0 80px 30px rgba(0,0,0,0.25)",
-                }}
-              />
-              {/* Robot width guide lines — 48 inch (1.22m) width projected as
-                  converging lines from the bottom of the frame to the vanishing
-                  point. Positions are approximate and assume a forward-facing
-                  camera centered on the robot. */}
-              {/* <RobotWidthGuide /> */}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-2">
-              <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-                <rect x="4" y="8" width="32" height="24" rx="3" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
-                <circle cx="20" cy="20" r="6" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
-                <circle cx="20" cy="20" r="2" fill="#94a3b8"/>
-              </svg>
-              <span style={{ color: "#94a3b8", fontSize: 13 }}>
-                Waiting for robot video stream...
-              </span>
+        {/* Video area */}
+        <div className="flex-1 flex flex-col min-h-0 gap-2">
+          {/* Camera selector */}
+          {state.availableCameras.length > 0 && (
+            <div className="flex gap-2 flex-shrink-0">
+              {state.availableCameras.map((cam) => {
+                const selected = state.selectedCameras.includes(cam);
+                return (
+                  <button
+                    key={cam}
+                    onClick={() => toggleCamera(cam)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all"
+                    style={{
+                      background: selected ? "#3b82f6" : "#ffffff",
+                      color: selected ? "#ffffff" : "#64748b",
+                      border: selected ? "1px solid #2563eb" : "1px solid #e2e8f0",
+                      boxShadow: selected
+                        ? "0 1px 2px rgba(37,99,235,0.3)"
+                        : "0 1px 2px rgba(0,0,0,0.04)",
+                    }}
+                  >
+                    {cam}
+                  </button>
+                );
+              })}
             </div>
           )}
-          <div className="absolute top-3 left-3">
-            <StatusPill
-              color={!hasVideo ? "neutral" : videoFresh ? "green" : "yellow"}
-              label={!hasVideo ? "No Video" : videoFresh ? "Video OK" : "Video Stale"}
-            />
+
+          {/* Video grid */}
+          <div
+            className={`flex-1 min-h-0 gap-2 ${
+              selectedTracks.length <= 1
+                ? "flex"
+                : "grid grid-cols-2"
+            }`}
+          >
+            {selectedTracks.length > 0 ? (
+              selectedTracks.map((trackRef) => {
+                const camName = cameraNameFromIdentity(
+                  trackRef.participant?.identity ?? ""
+                ) ?? "unknown";
+                const isFirst = trackRef === selectedTracks[0];
+                return (
+                  <div
+                    key={camName}
+                    className="relative rounded-xl overflow-hidden"
+                    style={{
+                      background: "#e2e8f0",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)",
+                    }}
+                  >
+                    <video
+                      ref={(el) => {
+                        // Attach staleness tracking to the first selected camera
+                        if (isFirst) setVideoEl(el);
+                        if (el && trackRef.publication?.track) {
+                          trackRef.publication.track.attach(el);
+                        }
+                      }}
+                      autoPlay
+                      playsInline
+                      className="w-full h-full object-contain"
+                      style={{ filter: "contrast(1.03) saturate(1.05)" }}
+                    />
+                    <div
+                      className="absolute inset-0 pointer-events-none"
+                      style={{ boxShadow: "inset 0 0 80px 30px rgba(0,0,0,0.25)" }}
+                    />
+                    <div className="absolute top-2 left-2">
+                      <span
+                        className="px-2 py-0.5 rounded text-[10px] font-medium capitalize"
+                        style={{ background: "rgba(0,0,0,0.5)", color: "#ffffff" }}
+                      >
+                        {camName}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div
+                className="flex-1 flex flex-col items-center justify-center rounded-xl"
+                style={{
+                  background: "#e2e8f0",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)",
+                }}
+              >
+                <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                  <rect x="4" y="8" width="32" height="24" rx="3" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
+                  <circle cx="20" cy="20" r="6" stroke="#94a3b8" strokeWidth="1.5" fill="none"/>
+                  <circle cx="20" cy="20" r="2" fill="#94a3b8"/>
+                </svg>
+                <span style={{ color: "#94a3b8", fontSize: 13 }} className="mt-2">
+                  {state.availableCameras.length === 0
+                    ? "Waiting for cameras..."
+                    : "Select a camera above"}
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* Video status pill */}
+          {selectedTracks.length > 0 && (
+            <div className="flex-shrink-0">
+              <StatusPill
+                color={!hasVideo ? "neutral" : videoFresh ? "green" : "yellow"}
+                label={!hasVideo ? "No Video" : videoFresh ? "Video OK" : "Video Stale"}
+              />
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}

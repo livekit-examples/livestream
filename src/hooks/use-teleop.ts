@@ -32,6 +32,10 @@ export type TeleopState = {
   pendingTransfer: TransferRequest | null;
   /** True while we're waiting for someone else to yield control to us. */
   awaitingTransfer: boolean;
+  /** Camera names currently available on the robot. */
+  availableCameras: string[];
+  /** Camera names the user has selected to view. */
+  selectedCameras: string[];
 };
 
 export function useTeleop(identity: string) {
@@ -49,6 +53,8 @@ export function useTeleop(identity: string) {
     lastError: null,
     pendingTransfer: null,
     awaitingTransfer: false,
+    availableCameras: [],
+    selectedCameras: [],
   });
 
   const clearLeaseTimer = useCallback(() => {
@@ -222,6 +228,17 @@ export function useTeleop(identity: string) {
           setState((s) => ({ ...s, rttMs: msg.rttMs }));
           break;
 
+        case "available_cameras":
+          setState((s) => ({
+            ...s,
+            availableCameras: msg.cameras,
+            // Remove any selected cameras that are no longer available
+            selectedCameras: s.selectedCameras.filter((c) =>
+              msg.cameras.includes(c)
+            ),
+          }));
+          break;
+
         default:
           break;
       }
@@ -286,6 +303,12 @@ export function useTeleop(identity: string) {
     room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
     setState((s) => ({ ...s, connected: true }));
 
+    // Request the current camera list on connect
+    sendMessage({
+      type: "request_available_cameras",
+      userIdentity: identity,
+    });
+
     return () => {
       room.off(RoomEvent.DataReceived, handleData);
       room.off(RoomEvent.Reconnected, handleReconnected);
@@ -331,6 +354,18 @@ export function useTeleop(identity: string) {
     setState((s) => ({ ...s, pendingTransfer: null }));
   }, [sendMessage, identity]);
 
+  const selectCameras = useCallback(
+    (cameras: string[]) => {
+      setState((s) => ({ ...s, selectedCameras: cameras }));
+      sendMessage({
+        type: "camera_selection",
+        userIdentity: identity,
+        cameras,
+      });
+    },
+    [sendMessage, identity]
+  );
+
   const sendCommand = useCallback(
     (linearX: number, linearY: number, angular: number) => {
       sequenceRef.current += 1;
@@ -357,5 +392,6 @@ export function useTeleop(identity: string) {
     acceptTransfer,
     denyTransfer,
     sendCommand,
+    selectCameras,
   };
 }
