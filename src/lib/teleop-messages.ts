@@ -74,6 +74,22 @@ export type RttUpdate = {
   timestamp: string;
 };
 
+export type AvailableCameras = {
+  type: "available_cameras";
+  cameras: string[];
+};
+
+export type CameraSelection = {
+  type: "camera_selection";
+  userIdentity: string;
+  cameras: string[];
+};
+
+export type RequestAvailableCameras = {
+  type: "request_available_cameras";
+  userIdentity: string;
+};
+
 export type TeleopMessage =
   | ControlRequest
   | ControlResponse
@@ -84,7 +100,10 @@ export type TeleopMessage =
   | Command
   | Ping
   | Pong
-  | RttUpdate;
+  | RttUpdate
+  | AvailableCameras
+  | CameraSelection
+  | RequestAvailableCameras;
 
 export function parseTeleopMessage(data: Uint8Array): TeleopMessage | null {
   try {
