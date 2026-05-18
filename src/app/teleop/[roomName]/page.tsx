@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LiveKitRoom } from "@livekit/components-react";
 import { TeleopPanel } from "@/components/teleop-panel";
 import type { ConnectionDetails } from "@/lib/controller";
@@ -54,6 +54,18 @@ export default function TeleopPage() {
     );
   }
 
+  // Web Worker for the SDK's packet-trailer extractor. Bundled by
+  // Webpack from `src/lib/pt-worker-entry.ts` (which re-exports the
+  // livekit-client worker module). Created once per page mount so the
+  // SDK has a single worker for all subscribed tracks.
+  const packetTrailerWorker = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    return new Worker(
+      new URL("../../../lib/pt-worker-entry.ts", import.meta.url),
+      { type: "module" },
+    );
+  }, []);
+
   if (!connectionDetails) {
     return (
       <main className="flex min-h-screen items-center justify-center p-8" style={{ background: "#f8fafc" }}>
@@ -76,6 +88,15 @@ export default function TeleopPage() {
         // dynacast: tell the server to stop forwarding layers nobody is
         // watching, reducing publisher CPU/bandwidth.
         dynacast: true,
+        // Packet-trailer worker: extracts the LKTS trailer the teleop
+        // agent appends to every encoded H.264 frame and stashes
+        // `user_timestamp` keyed by RTP timestamp. The app queries it
+        // via `track.lookupFrameMetadata({ rtpTimestamp })`.
+        //
+        // On Chrome the SDK runs the worker via `RTCRtpScriptTransform`
+        // — no `encodedInsertableStreams: true` flag needed, and no
+        // interference with the publisher PC or data tracks.
+        packetTrailer: packetTrailerWorker ? { worker: packetTrailerWorker } : undefined,
       }}
     >
       <TeleopPanel identity={identity} />

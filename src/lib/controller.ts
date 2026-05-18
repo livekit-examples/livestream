@@ -36,7 +36,7 @@ export class Controller {
     return {
       connection_details: {
         ws_url: process.env.LIVEKIT_WS_URL!,
-        token: at.toJwt(),
+        token: await at.toJwt(),
       },
     };
   }

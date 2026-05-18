@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoomContext } from "@livekit/components-react";
-import { DataPacket_Kind, RemoteParticipant, RoomEvent } from "livekit-client";
+import { ConnectionState, RemoteParticipant, RoomEvent } from "livekit-client";
 import {
   TeleopMessage,
   encodeTeleopMessage,
@@ -103,13 +103,27 @@ export function useTeleop(identity: string) {
 
   const sendMessage = useCallback(
     async (msg: TeleopMessage) => {
+      // Guard against the v2-SDK race where the publisher PC isn't
+      // ready yet — publishData throws "PC manager is closed". Quietly
+      // drop messages emitted before the room is fully Connected;
+      // callers re-fire them on RoomEvent.Connected via the use-effect
+      // bootstrap and on user interaction once connected.
+      if (room.state !== ConnectionState.Connected) {
+        console.warn(
+          "[teleop] skipping send — room state is",
+          room.state,
+          "(message type:",
+          msg.type,
+          ")"
+        );
+        return;
+      }
       try {
         const payload = encodeTeleopMessage(msg);
-        await room.localParticipant.publishData(
-          payload,
-          DataPacket_Kind.RELIABLE,
-          { topic: "teleop" }
-        );
+        await room.localParticipant.publishData(payload, {
+          reliable: true,
+          topic: "teleop",
+        });
       } catch (err) {
         console.error("Failed to send teleop message:", err);
       }
@@ -301,13 +315,24 @@ export function useTeleop(identity: string) {
     room.on(RoomEvent.Reconnected, handleReconnected);
     room.on(RoomEvent.Disconnected, handleDisconnected);
     room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
-    setState((s) => ({ ...s, connected: true }));
 
-    // Request the current camera list on connect
-    sendMessage({
-      type: "request_available_cameras",
-      userIdentity: identity,
-    });
+    // In v2 of livekit-client, the Room instance exists before
+    // `connect()` finishes, so calling `publishData` during the initial
+    // mount races with publisher-PC setup ("PC manager is closed"). Send
+    // the first message only after the room reaches Connected state.
+    const requestInitialCameras = () => {
+      setState((s) => ({ ...s, connected: true }));
+      sendMessage({
+        type: "request_available_cameras",
+        userIdentity: identity,
+      });
+    };
+
+    if (room.state === ConnectionState.Connected) {
+      requestInitialCameras();
+    } else {
+      room.once(RoomEvent.Connected, requestInitialCameras);
+    }
 
     return () => {
       room.off(RoomEvent.DataReceived, handleData);
@@ -317,6 +342,7 @@ export function useTeleop(identity: string) {
         RoomEvent.ParticipantDisconnected,
         handleParticipantDisconnected
       );
+      room.off(RoomEvent.Connected, requestInitialCameras);
       clearLeaseTimer();
     };
   }, [room, sendMessage, identity, setLeaseTimer, clearLeaseTimer]);

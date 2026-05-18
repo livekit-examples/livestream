@@ -2,21 +2,29 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTeleop, TeleopState } from "@/hooks/use-teleop";
-import { useTracks } from "@livekit/components-react";
+import { useRoomContext, useTracks } from "@livekit/components-react";
 import { Track, RemoteTrackPublication } from "livekit-client";
 import { Joystick } from "./joystick";
+import { installLatencyReaders } from "@/lib/latency";
 
 const MAX_LINEAR_SPEED = 0.5; // m/s
 const MAX_ANGULAR_SPEED = 0.5; // rad/s
 const COMMAND_RATE_MS = 50; // 20 Hz — must match hal-can-interfaces command interval
 const VIDEO_STALE_MS = 500; // 500ms without a new frame = stale
 const RTT_THRESHOLD_MS = 200; // must match backend SafetyValidator
+const STREAM_LATENCY_GOOD_MS = 350; // < this = green
+const STREAM_LATENCY_FAIR_MS = 500; // < this = yellow; >= this blocks commands
 const STALE_WINDOW_MS = 60_000; // 1-minute rolling window for stale event rate
 
-/** Extract camera name from a LiveKit participant identity like "robot-video-front". */
-function cameraNameFromIdentity(identity: string): string | null {
-  const prefix = "robot-video-";
-  return identity.startsWith(prefix) ? identity.slice(prefix.length) : null;
+/**
+ * The teleop agent names video tracks with the camera's topic-prefix shape:
+ * mono `camera_front` → track `front`; stereo `camera_front/left` → track
+ * `front-left`. The webapp's `selectedCameras` is a list of *directions*
+ * (front/rear/left/right), so a track matches a selected camera if its
+ * name equals the direction outright or starts with `${direction}-`.
+ */
+function cameraNameMatches(trackName: string, direction: string): boolean {
+  return trackName === direction || trackName.startsWith(direction + "-");
 }
 
 export function TeleopPanel({ identity }: { identity: string }) {
@@ -24,12 +32,12 @@ export function TeleopPanel({ identity }: { identity: string }) {
     useTeleop(identity);
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true });
 
-  // Match tracks to selected cameras by participant identity
+  // Match tracks to selected cameras by track name (the agent publishes
+  // each camera as a track named `front`, `front-left`, etc.).
   const selectedTracks = tracks.filter((t) => {
-    const participantId = t.participant?.identity;
-    if (!participantId) return false;
-    const camName = cameraNameFromIdentity(participantId);
-    return camName !== null && state.selectedCameras.includes(camName);
+    const trackName = t.publication?.trackName;
+    if (!trackName) return false;
+    return state.selectedCameras.some((dir) => cameraNameMatches(trackName, dir));
   });
 
   const joystickRef = useRef({ x: 0, y: 0 });
@@ -44,13 +52,16 @@ export function TeleopPanel({ identity }: { identity: string }) {
   // Lower values reduce latency but make playback more sensitive to jitter.
   // 100ms matches ugur-webrtc_teleop_test; 50ms was too aggressive for Starlink
   // jitter (80-220ms RTT spikes cause frame drops at low playout delay).
+  //
+  // livekit-client v2 changed the signature: a single `delayInSeconds`
+  // number replaces the v1 `{ min, max }` object.
   useEffect(() => {
     for (const t of selectedTracks) {
       const pub0 = t.publication;
       if (!pub0 || !(pub0 instanceof RemoteTrackPublication)) continue;
       const remoteTrack = pub0.track;
       if (remoteTrack && "setPlayoutDelay" in remoteTrack) {
-        (remoteTrack as any).setPlayoutDelay({ min: 0, max: 0.1 });
+        (remoteTrack as any).setPlayoutDelay(0.1);
       }
     }
   }, [selectedTracks]);
@@ -62,12 +73,11 @@ export function TeleopPanel({ identity }: { identity: string }) {
   const lastFrameTimeRef = useRef<number>(0);
   const [videoFresh, setVideoFresh] = useState(false);
 
-  // --- Stale event tracking (rolling window) ---
-  // Each entry: { timestamp, durationMs } — pruned together so averages stay accurate.
+  // --- Stale event tracking (rolling window, debug-only) ---
+  // Logged to the console; not surfaced in the UI.
   const staleEventsRef = useRef<{ timestamp: number; durationMs: number }[]>([]);
   const staleStartRef = useRef<number | null>(null); // when current stale period began
   const wasFreshRef = useRef(false);
-  const [staleRate, setStaleRate] = useState<number>(0); // events per minute
 
   // Register requestVideoFrameCallback when we get a video element
   useEffect(() => {
@@ -108,8 +118,35 @@ export function TeleopPanel({ identity }: { identity: string }) {
       // Prune old events outside the rolling window
       const cutoff = now - STALE_WINDOW_MS;
       staleEventsRef.current = staleEventsRef.current.filter(e => e.timestamp > cutoff);
-      setStaleRate(staleEventsRef.current.length);
     }, 100);
+    return () => clearInterval(id);
+  }, []);
+
+  // --- LKTS timestamp extraction → frame age display ---
+  // Hook the room's `TrackSubscribed` event and attach an encoded-streams
+  // transform to each camera receiver the moment it subscribes — we have
+  // to do this BEFORE the first frame is processed, or Chrome rejects
+  // `createEncodedStreams()` with InvalidStateError. The Insertable
+  // Streams transform parses the LKTS packet trailer the teleop agent
+  // appends to every NAL and reports the embedded user_timestamp
+  // (microseconds, sensor capture time at the robot).
+  //
+  // We stash the latest microsecond stamp keyed by trackName in a ref so
+  // per-frame updates (~30/s) don't trigger React renders. A 200ms tick
+  // re-renders the badges from the latest refs.
+  const room = useRoomContext();
+  const latencyTimestampsRef = useRef<Map<string, number>>(new Map());
+  const [, setLatencyTick] = useState(0);
+
+  useEffect(() => {
+    if (!room) return;
+    return installLatencyReaders(room, (trackName, userTimestampUs) => {
+      latencyTimestampsRef.current.set(trackName, userTimestampUs);
+    });
+  }, [room]);
+
+  useEffect(() => {
+    const id = setInterval(() => setLatencyTick((n) => (n + 1) % 1_000_000), 200);
     return () => clearInterval(id);
   }, []);
 
@@ -216,13 +253,40 @@ export function TeleopPanel({ identity }: { identity: string }) {
 
   // --- Safety block reason ---
   const hasVideo = selectedTracks.length > 0;
+  // Worst (highest) capture-to-display latency across selected cameras.
+  let worstStreamLatencyMs: number | null = null;
+  for (const t of selectedTracks) {
+    const name = t.publication?.trackName;
+    if (!name) continue;
+    const ts = latencyTimestampsRef.current.get(name);
+    if (ts === undefined) continue;
+    const age = Math.max(0, Date.now() - ts / 1000);
+    if (age > 10_000) continue; // sanity gate — clock skew
+    if (worstStreamLatencyMs === null || age > worstStreamLatencyMs) {
+      worstStreamLatencyMs = age;
+    }
+  }
+  // Stream-latency gate. `null` = no LKTS trailer data despite a fresh
+  // video stream (extractor wiring bug, missing packet trailer worker on
+  // the room, …). `0` = `Math.max(0, …)` clamped a negative value, which
+  // happens when the robot's wall clock is ahead of the operator's
+  // (clock skew bigger than the true one-way delay). Both are
+  // unreliable readings and should block commands.
+  const streamLatencyReason: string | null =
+    worstStreamLatencyMs === null
+      ? "Stream latency unavailable (no LKTS trailer data)"
+      : worstStreamLatencyMs === 0
+      ? "Stream latency reads 0 ms (likely clock skew between robot and operator)"
+      : worstStreamLatencyMs >= STREAM_LATENCY_FAIR_MS
+      ? `Stream latency too high (${worstStreamLatencyMs.toFixed(0)}ms ≥ ${STREAM_LATENCY_FAIR_MS}ms)`
+      : null;
   const safetyBlockReason: string | null = !hasVideo
     ? "No video stream available"
     : !videoFresh
     ? "Video stream is stale"
     : state.rttMs !== null && state.rttMs > RTT_THRESHOLD_MS
     ? `Latency too high (${state.rttMs.toFixed(0)}ms > ${RTT_THRESHOLD_MS}ms)`
-    : null;
+    : streamLatencyReason;
 
   const controlsBlocked = safetyBlockReason !== null;
   const safetyBlockRef = useRef(controlsBlocked);
@@ -360,10 +424,27 @@ export function TeleopPanel({ identity }: { identity: string }) {
           >
             {selectedTracks.length > 0 ? (
               selectedTracks.map((trackRef) => {
-                const camName = cameraNameFromIdentity(
-                  trackRef.participant?.identity ?? ""
-                ) ?? "unknown";
+                const camName = trackRef.publication?.trackName ?? "unknown";
                 const isFirst = trackRef === selectedTracks[0];
+                const userTimestampUs = latencyTimestampsRef.current.get(camName);
+                const ageMs =
+                  userTimestampUs !== undefined
+                    ? Math.max(0, Date.now() - userTimestampUs / 1000)
+                    : null;
+                // Display only sane values; >10s usually means operator clock
+                // skew or no frames received yet — show "—" instead.
+                const ageLabel =
+                  ageMs === null || ageMs > 10_000
+                    ? "—"
+                    : `${ageMs.toFixed(0)} ms`;
+                const ageColor =
+                  ageMs === null
+                    ? "rgba(255,255,255,0.6)"
+                    : ageMs < STREAM_LATENCY_GOOD_MS
+                    ? "#86efac"
+                    : ageMs < STREAM_LATENCY_FAIR_MS
+                    ? "#fde68a"
+                    : "#fca5a5";
                 return (
                   <div
                     key={camName}
@@ -375,7 +456,6 @@ export function TeleopPanel({ identity }: { identity: string }) {
                   >
                     <video
                       ref={(el) => {
-                        // Attach staleness tracking to the first selected camera
                         if (isFirst) setVideoEl(el);
                         if (el && trackRef.publication?.track) {
                           trackRef.publication.track.attach(el);
@@ -396,6 +476,18 @@ export function TeleopPanel({ identity }: { identity: string }) {
                         style={{ background: "rgba(0,0,0,0.5)", color: "#ffffff" }}
                       >
                         {camName}
+                      </span>
+                    </div>
+                    <div className="absolute top-2 right-2">
+                      <span
+                        className="px-2 py-0.5 rounded text-[10px] font-mono"
+                        style={{
+                          background: "rgba(0,0,0,0.55)",
+                          color: ageColor,
+                        }}
+                        title="Video age — sensor capture → operator paint. Requires NTP-synced clocks on both sides."
+                      >
+                        Video age: {ageLabel}
                       </span>
                     </div>
                   </div>
@@ -498,11 +590,11 @@ export function TeleopPanel({ identity }: { identity: string }) {
             </button>
           )}
 
-          {/* RTT */}
+          {/* Control link RTT (data-channel ping/pong round-trip). The
+              per-camera "Video age" badge above each preview shows the
+              capture→display age for each individual stream. */}
           <RttIndicator rttMs={state.rttMs} />
 
-          {/* Video quality metrics */}
-          <StreamMetrics staleRate={staleRate} />
 
           {/* Joystick area (only when controlling) */}
           {state.hasControl && (
@@ -659,31 +751,15 @@ function RttIndicator({ rttMs }: { rttMs: number | null }) {
   }
 
   return (
-    <div className="flex items-center justify-between p-2.5 rounded-xl" style={{ background: bg, border: `1px solid ${border}` }}>
-      <span className="text-xs" style={{ color: "#64748b" }}>Latency</span>
+    <div
+      className="flex items-center justify-between p-2.5 rounded-xl"
+      style={{ background: bg, border: `1px solid ${border}` }}
+      title="Control link round-trip time — measured by data-channel ping/pong between the operator and the robot. Independent of the per-camera video age."
+    >
+      <span className="text-xs" style={{ color: "#64748b" }}>Control link RTT</span>
       <span className="font-mono text-sm font-semibold" style={{ color }}>
         {rttMs !== null ? `${rttMs.toFixed(0)} ms` : "—"}{" "}
         {status && <span className="text-xs font-normal opacity-75">{status}</span>}
-      </span>
-    </div>
-  );
-}
-
-function StreamMetrics({ staleRate }: { staleRate: number }) {
-  let color = "#166534";
-  let bg = "#f0fdf4";
-  let border = "#dcfce7";
-  if (staleRate >= 5) {
-    color = "#991b1b"; bg = "#fef2f2"; border = "#fecaca";
-  } else if (staleRate >= 1) {
-    color = "#854d0e"; bg = "#fffbeb"; border = "#fef3c7";
-  }
-
-  return (
-    <div className="flex items-center justify-between p-2.5 rounded-xl" style={{ background: bg, border: `1px solid ${border}` }}>
-      <span className="text-xs" style={{ color: "#64748b" }}>Stale events</span>
-      <span className="font-mono text-sm font-semibold" style={{ color }}>
-        {staleRate}/min
       </span>
     </div>
   );
