@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoomContext } from "@livekit/components-react";
-import { DataPacket_Kind, RemoteParticipant, RoomEvent } from "livekit-client";
+import {
+  ConnectionState,
+  DataPacket_Kind,
+  RemoteParticipant,
+  RoomEvent,
+} from "livekit-client";
 import {
   TeleopMessage,
   encodeTeleopMessage,
@@ -297,20 +302,33 @@ export function useTeleop(identity: string) {
       }));
     };
 
+    // Fires once the LiveKit socket is actually up and the local participant
+    // has joined. publishData before this point silently fails — the request
+    // never reaches the agent.
+    const handleConnected = () => {
+      setState((s) => ({ ...s, connected: true }));
+      sendMessage({
+        type: "request_available_cameras",
+        userIdentity: identity,
+      });
+    };
+
     room.on(RoomEvent.DataReceived, handleData);
+    room.on(RoomEvent.Connected, handleConnected);
     room.on(RoomEvent.Reconnected, handleReconnected);
     room.on(RoomEvent.Disconnected, handleDisconnected);
     room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
-    setState((s) => ({ ...s, connected: true }));
 
-    // Request the current camera list on connect
-    sendMessage({
-      type: "request_available_cameras",
-      userIdentity: identity,
-    });
+    // The room may already be Connected by the time this effect attaches
+    // (e.g. fast reconnect, StrictMode re-run), in which case the Connected
+    // event has already fired and won't fire again.
+    if (room.state === ConnectionState.Connected) {
+      handleConnected();
+    }
 
     return () => {
       room.off(RoomEvent.DataReceived, handleData);
+      room.off(RoomEvent.Connected, handleConnected);
       room.off(RoomEvent.Reconnected, handleReconnected);
       room.off(RoomEvent.Disconnected, handleDisconnected);
       room.off(
